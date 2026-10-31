@@ -5,7 +5,9 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+familiard-agents = { path = "../agents" }
 familiard-application = { path = "../application" }
+familiard-domain = { path = "../domain" }
 familiard-pack = { path = "../pack" }
 familiard-stage-terminal = { path = "../stage-terminal" }
 

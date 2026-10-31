@@ -1,0 +1,11 @@
+[package]
+name = "familiard-agents"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+familiard-application = { path = "../application" }
+familiard-domain = { path = "../domain" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
