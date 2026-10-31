@@ -1,7 +1,8 @@
 # familiard
 
 A very light desktop pet that lives on your screen. Early stage: it plays its idle
-animation and can be dragged around; it does not react to coding agents yet.
+animation, can be dragged between monitors, and lets clicks through its transparent areas.
+It does not react to coding agents yet.
 
 ```sh
 cargo run --release -- --pet pets/demo                     # floating on the desktop
