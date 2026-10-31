@@ -375,7 +375,7 @@ impl PointerHandler for Theatre {
                     // point is always the distance still to travel.
                     if let Some(grab) = self.grabbed_at {
                         let (dx, dy) = (event.position.0 - grab.0, event.position.1 - grab.1);
-                        changed |= self.player.pointer(Pointer::Dragged((dx.abs() + dy.abs()).round() as u32));
+                        changed |= self.player.pointer(Pointer::Dragged(dx.round() as i32, dy.round() as i32));
                         self.drag_by(dx, dy, qh);
                     }
                 }

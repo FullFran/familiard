@@ -22,6 +22,7 @@ const DOZE_FPS: u32 = 3;
 const DOZE_LISTEN_EVERY: Duration = Duration::from_millis(250);
 /// How far the pointer may wander during a press that still counts as a click.
 const CLICK_SLOP: u32 = 3;
+const CARRIED_FPS: u32 = 12;
 
 /// A source of chance: each call returns any `u64`.
 pub type Dice = Box<dyn FnMut() -> u64 + Send>;
@@ -33,8 +34,8 @@ pub enum Pointer {
     /// It left the pet. During a press, that means the grab was lost.
     Left,
     Pressed,
-    /// The pet was dragged this many pixels, on top of any before.
-    Dragged(u32),
+    /// The pet was dragged this far, in pixels, on top of any before.
+    Dragged(i32, i32),
     Released,
 }
 
@@ -46,6 +47,8 @@ enum Act {
     Dozing,
     Waving,
     Startled,
+    /// Being dragged: its legs kick towards where it is going.
+    Carried { rightward: bool },
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -116,7 +119,7 @@ impl Life {
     pub fn advance(&mut self, pet: &Pet, elapsed: Duration, idle: bool) -> bool {
         self.idle = idle;
         self.quiet += elapsed;
-        if !idle && !matches!(self.act, Act::Still | Act::Startled) {
+        if !idle && !matches!(self.act, Act::Still | Act::Startled | Act::Carried { .. }) {
             self.finish();
         }
         self.play(pet, elapsed);
@@ -139,7 +142,7 @@ impl Life {
         self.quiet = Duration::ZERO;
         match self.act {
             Act::Dozing => self.wake(pet),
-            Act::Still | Act::Startled => {}
+            Act::Still | Act::Startled | Act::Carried { .. } => {}
             _ => self.finish(),
         }
     }
@@ -152,7 +155,10 @@ impl Life {
                     self.begin_glance(pet);
                 }
             }
-            Pointer::Left => self.press = None,
+            Pointer::Left => {
+                self.press = None;
+                self.put_down();
+            }
             Pointer::Pressed => {
                 self.quiet = Duration::ZERO;
                 let waves = !matches!(self.act, Act::Dozing | Act::Startled);
@@ -163,14 +169,18 @@ impl Life {
                 }
                 self.press = Some(Press { travelled: 0, waves });
             }
-            Pointer::Dragged(distance) => {
+            Pointer::Dragged(dx, dy) => {
                 if let Some(press) = &mut self.press {
-                    press.travelled = press.travelled.saturating_add(distance);
+                    press.travelled = press.travelled.saturating_add(dx.unsigned_abs()).saturating_add(dy.unsigned_abs());
+                    if press.travelled > CLICK_SLOP {
+                        self.carry(pet, dx);
+                    }
                 }
             }
             Pointer::Released => {
                 // Being held is not being left alone.
                 self.quiet = Duration::ZERO;
+                self.put_down();
                 if let Some(press) = self.press.take() {
                     let clicked = press.waves && press.travelled <= CLICK_SLOP;
                     if clicked && self.idle && pet.own_clip(Mood::Done).is_some() {
@@ -195,6 +205,10 @@ impl Life {
             Act::Dozing => Some(pet.own_clip(Mood::Failed)?.frame(self.frame)),
             Act::Waving => Some(pet.own_clip(Mood::Done)?.frame(self.frame)),
             Act::Startled => Some(pet.own_clip(Mood::Celebrating)?.frame(self.frame)),
+            Act::Carried { rightward } => {
+                let (right, left) = moves.running.as_ref()?;
+                Some(if rightward { right } else { left }.frame(self.frame))
+            }
         }
     }
 
@@ -255,6 +269,7 @@ impl Life {
             Act::Dozing => Duration::from_secs(1) / DOZE_FPS,
             Act::Waving => Duration::from_secs(1) / Mood::Done.fps(),
             Act::Startled => Duration::from_secs(1) / Mood::Celebrating.fps(),
+            Act::Carried { .. } => Duration::from_secs(1) / CARRIED_FPS,
         }
     }
 
@@ -272,7 +287,7 @@ impl Life {
             let plays_to = match self.act {
                 Act::Still => return,
                 Act::Glancing { frames, .. } => frames,
-                Act::Strolling { .. } => usize::MAX,
+                Act::Strolling { .. } | Act::Carried { .. } => usize::MAX,
                 Act::Dozing => {
                     if self.frame < doze_hold(pet) {
                         self.frame += 1;
@@ -288,6 +303,28 @@ impl Life {
             if self.frame >= plays_to {
                 self.finish();
             }
+        }
+    }
+
+    /// Starts kicking, or changes side. Moving straight up or down keeps the side it had.
+    fn carry(&mut self, pet: &Pet, dx: i32) {
+        if pet.moves().running.is_none() {
+            return;
+        }
+        match &mut self.act {
+            Act::Carried { rightward } => {
+                if dx != 0 && *rightward != (dx > 0) {
+                    *rightward = dx > 0;
+                    self.dirty = true;
+                }
+            }
+            _ => self.begin(Act::Carried { rightward: dx >= 0 }),
+        }
+    }
+
+    fn put_down(&mut self) {
+        if matches!(self.act, Act::Carried { .. }) {
+            self.begin(Act::Still);
         }
     }
 

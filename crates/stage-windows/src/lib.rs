@@ -207,8 +207,7 @@ unsafe extern "system" fn window_procedure(window: HWND, message: u32, wparam: W
                 theatre.held = false;
                 theatre.hovering = false;
                 if let (Some(from), Some(to)) = (from, to) {
-                    let distance = (to.0 - from.0).unsigned_abs() + (to.1 - from.1).unsigned_abs();
-                    theatre.player.pointer(Pointer::Dragged(distance));
+                    theatre.player.pointer(Pointer::Dragged(to.0 - from.0, to.1 - from.1));
                 }
                 theatre.feel(window, Pointer::Released);
             });

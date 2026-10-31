@@ -285,10 +285,10 @@ fn pressing_stops_a_stroll_and_a_drag_never_starts_one() {
     assert_eq!(shown(&life, &pet), None);
     assert_eq!(life.step(), None);
 
-    life.pointer(&pet, Pointer::Dragged(50));
+    life.pointer(&pet, Pointer::Dragged(50, 0));
     life.advance(&pet, secs(600), true);
-    assert_eq!(shown(&life, &pet), None, "nothing starts while the pet is held");
-    assert_eq!(life.step(), None);
+    assert!((RIGHT..RIGHT + 8).contains(&shown(&life, &pet).unwrap()), "it kicks while held");
+    assert_eq!(life.step(), None, "and being held is not walking");
 
     life.pointer(&pet, Pointer::Released);
     life.advance(&pet, secs(240), true);
@@ -487,9 +487,9 @@ fn a_click_waves_once_and_a_drag_does_not() {
     let mut dragged = Life::new(fixed(0));
     dragged.advance(&pet, ms(1), true);
     dragged.pointer(&pet, Pointer::Pressed);
-    dragged.pointer(&pet, Pointer::Dragged(4));
-    assert!(!dragged.pointer(&pet, Pointer::Released));
-    assert_eq!(shown(&dragged, &pet), None);
+    dragged.pointer(&pet, Pointer::Dragged(4, 0));
+    dragged.pointer(&pet, Pointer::Released);
+    assert_eq!(shown(&dragged, &pet), None, "no wave after a drag");
 }
 
 #[test]
@@ -498,8 +498,8 @@ fn a_hand_that_shakes_a_little_still_counts_as_a_click() {
     let mut life = Life::new(fixed(0));
     life.advance(&pet, ms(1), true);
     life.pointer(&pet, Pointer::Pressed);
-    life.pointer(&pet, Pointer::Dragged(1));
-    life.pointer(&pet, Pointer::Dragged(2));
+    life.pointer(&pet, Pointer::Dragged(1, 0));
+    life.pointer(&pet, Pointer::Dragged(2, 0));
     life.pointer(&pet, Pointer::Released);
     assert_eq!(shown(&life, &pet), Some(WAVE));
 }
@@ -603,4 +603,76 @@ fn a_v1_sheet_strolls_dozes_and_waves_but_has_no_head_turns() {
     life.pointer(&pet, Pointer::Released);
     assert_eq!(shown(&life, &pet), Some(WAVE));
     dozing(&pet);
+}
+
+fn kicking(life: &Life, pet: &Pet) -> Option<u8> {
+    life.sprite(pet).map(|sprite| sprite.rgba()[0])
+}
+
+#[test]
+fn a_pet_kicks_its_legs_towards_where_it_is_dragged_and_stops_when_let_go() {
+    let pet = full();
+    let mut life = Life::new(fixed(0));
+    life.pointer(&pet, Pointer::Pressed);
+    assert_eq!(kicking(&life, &pet), None, "pressing alone is not a drag yet");
+
+    assert!(life.pointer(&pet, Pointer::Dragged(10, 0)));
+    assert_eq!(kicking(&life, &pet), Some(RIGHT));
+    life.advance(&pet, ms(100), true);
+    assert_eq!(kicking(&life, &pet), Some(RIGHT + 1), "the legs keep moving");
+
+    assert!(life.pointer(&pet, Pointer::Dragged(-10, 0)));
+    assert_eq!(kicking(&life, &pet).map(|byte| byte / 10 * 10), Some(LEFT));
+
+    life.pointer(&pet, Pointer::Dragged(0, 10));
+    assert_eq!(kicking(&life, &pet).map(|byte| byte / 10 * 10), Some(LEFT), "straight up keeps the last side");
+
+    assert!(life.pointer(&pet, Pointer::Released));
+    assert_eq!(kicking(&life, &pet), None);
+    assert_eq!(life.step(), None, "being carried is not walking");
+}
+
+#[test]
+fn losing_the_grab_also_ends_the_kicking() {
+    let pet = full();
+    let mut life = Life::new(fixed(0));
+    life.pointer(&pet, Pointer::Pressed);
+    life.pointer(&pet, Pointer::Dragged(10, 0));
+    assert!(life.pointer(&pet, Pointer::Left));
+    assert_eq!(kicking(&life, &pet), None);
+}
+
+#[test]
+fn a_few_stray_pixels_are_still_a_click() {
+    let pet = full();
+    let mut life = Life::new(fixed(0));
+    life.pointer(&pet, Pointer::Pressed);
+    life.pointer(&pet, Pointer::Dragged(2, 1));
+    assert_eq!(kicking(&life, &pet), None);
+    life.pointer(&pet, Pointer::Released);
+    assert_eq!(kicking(&life, &pet), Some(WAVE));
+}
+
+#[test]
+fn being_carried_shows_even_while_an_agent_works_and_a_report_does_not_interrupt_it() {
+    let pet = full();
+    let mut life = Life::new(fixed(0));
+    life.pointer(&pet, Pointer::Pressed);
+    life.pointer(&pet, Pointer::Dragged(10, 0));
+    life.advance(&pet, ms(10), false);
+    life.hear(&pet);
+    assert_eq!(kicking(&life, &pet), Some(RIGHT));
+    life.pointer(&pet, Pointer::Released);
+    assert_eq!(kicking(&life, &pet), None);
+}
+
+#[test]
+fn a_sheet_without_running_rows_just_moves_when_dragged() {
+    let pet = bare();
+    let mut life = Life::new(fixed(0));
+    life.pointer(&pet, Pointer::Pressed);
+    life.pointer(&pet, Pointer::Dragged(30, 0));
+    assert_eq!(kicking(&life, &pet), None);
+    life.pointer(&pet, Pointer::Released);
+    assert_eq!(kicking(&life, &pet), None);
 }

@@ -90,6 +90,7 @@ first and interrupts all of this at once.
 | Jumps, startled | When a report or a press wakes it | Row 4 |
 | Looks at the pointer | When the pointer comes over it | Rows 9 and 10 |
 | Waves | When you click it without dragging | Row 3 |
+| Kicks its legs | While you drag it, towards where it is going | Rows 1 and 2 |
 
 To keep a pet where you put it, add `--still` to `summon` or `run`: it stops strolling and keeps
 everything else. A pet bound with `--here` wakes only for its own session.
