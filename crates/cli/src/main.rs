@@ -173,8 +173,20 @@ fn detach(command: &mut Command) {
 #[cfg(windows)]
 fn detach(command: &mut Command) {
     use std::os::windows::process::CommandExt;
+    use windows_sys::Win32::Foundation::{SetHandleInformation, HANDLE_FLAG_INHERIT};
+    use windows_sys::Win32::System::Console::{
+        GetStdHandle, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
+    };
     const DETACHED_PROCESS: u32 = 0x0000_0008;
     command.creation_flags(DETACHED_PROCESS);
+    // Children inherit every inheritable handle, even when their own stdio is redirected.
+    // A pet holding our stdout would hang whoever is waiting for this command to finish.
+    for id in [STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, STD_ERROR_HANDLE] {
+        // SAFETY: both calls only take a handle by value; failure leaves things as they were.
+        unsafe {
+            SetHandleInformation(GetStdHandle(id), HANDLE_FLAG_INHERIT, 0);
+        }
+    }
 }
 
 #[cfg(not(any(unix, windows)))]
