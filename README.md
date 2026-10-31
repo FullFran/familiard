@@ -46,6 +46,7 @@ terminal or from a coding agent. A pet follows every session, or only the one yo
 
 ```sh
 familiard add path/to/folder     # add a pet (--as name to rename it)
+familiard add petdex:elaina-3    # or one from petdex.dev (familiard search elaina)
 familiard pets                   # what you have and what is open (-l; --json for scripts)
 familiard summon                 # the default pet (-s)
 familiard summon mochi           # any other, as many at once as you like

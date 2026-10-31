@@ -1,6 +1,7 @@
 //! Composition root: turns the command line into calls to the adapters.
 mod browser;
 mod native_host;
+mod petdex;
 
 use familiard_agents::{interpret, LocalFeed, Roster};
 use familiard_application::{summon, ActivityFeed, Failure, PetSource, Stage};
@@ -23,7 +24,9 @@ const USAGE: &str = "usage:
                                    --still: never walk around on its own
   familiard dismiss, -d [id] | --all   send pets away (the default one if no id)
   familiard pets, -l [--json]      list the gallery and which pets are open
-  familiard add <folder> [--as id] add a pet to the gallery
+  familiard add <folder|petdex:NAME> [--as id]
+                                   add a pet to the gallery, from a folder or from petdex.dev
+  familiard search <text>          look for pets on petdex.dev
   familiard remove <id>            remove a pet from the gallery
   familiard default <id>           choose the default pet
   familiard run --pet <dir> [--follow DIR | --session ID] [--still] [--name TEXT] [--stage desktop|terminal] [--rows N] [--frames N] [--at X,Y]
@@ -447,8 +450,16 @@ fn add(args: Vec<String>) -> Result<(), Failure> {
         }
     }
     let folder = folder.ok_or(format!("add needs a folder\n{USAGE}"))?;
-    PetPack::new(&folder).load()?; // a pet that cannot load does not enter the gallery
-    let entry = Gallery::new(&home()).add(Path::new(&folder), id.as_deref())?;
+    let download = match folder.strip_prefix("petdex:") {
+        Some(slug) => {
+            id = id.or_else(|| Some(slug.to_string()));
+            Some(petdex::download(slug)?)
+        }
+        None => None,
+    };
+    let folder = download.as_ref().map_or(Path::new(&folder), petdex::Download::path);
+    PetPack::new(folder).load()?; // a pet that cannot load does not enter the gallery
+    let entry = Gallery::new(&home()).add(folder, id.as_deref())?;
     let note = if entry.is_default { " (default)" } else { "" };
     println!("added {}{note}: familiard summon {}", entry.name, entry.id);
     Ok(())
@@ -523,6 +534,7 @@ fn dispatch(mut args: Vec<String>) -> Result<(), Failure> {
         "dismiss" | "-d" => dismiss(args),
         "pets" | "-l" => pets(args),
         "add" => add(args),
+        "search" => petdex::search(args),
         "remove" => remove(args),
         "default" => set_default(args),
         "run" => run(args),

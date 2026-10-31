@@ -12,6 +12,8 @@ familiard summon mine
 | Command | What it does |
 | --- | --- |
 | `familiard add <folder> [--as id]` | Copies the pet in. The first one becomes the default |
+| `familiard add petdex:<name> [--as id]` | Downloads a pet from [Petdex](https://petdex.dev) into the gallery |
+| `familiard search <text>` | Looks for pets on Petdex |
 | `familiard pets [--json]`, `-l` | Lists the gallery: `*` marks the default, `(open)` what is out |
 | `familiard summon [id] [--here \| --session ID] [--still] [--name TEXT] [--at X,Y]`, `-s` | Brings out a pet, the default if none is named |
 | `familiard dismiss [id]`, `--all`, `-d` | Sends pets away |
@@ -22,6 +24,24 @@ Each open pet is its own small process, and each reacts to your agents as descri
 [A pet for one session](#a-pet-for-one-session). The gallery lives
 in `~/.local/share/familiard` (`%APPDATA%\\familiard` on Windows,
 `~/Library/Application Support/familiard` on macOS), or wherever `FAMILIARD_HOME` points.
+
+
+## Pets from Petdex
+
+[Petdex](https://petdex.dev) is a community gallery of pets in the Codex format.
+
+```sh
+familiard search elaina
+familiard add petdex:elaina-3
+familiard summon elaina-3
+```
+
+This uses its public list and needs `curl`, with no account. The pet goes to the familiard
+gallery only: `npx petdex install` also copies it to `~/.codex/pets`, and this does not.
+Files are accepted only from `assets.petdex.dev`.
+
+Petdex's pets are fan art sent in by its users, and Petdex claims no rights over the characters.
+Keep them on your machine: do not put them in a shared repository.
 
 ## A pet for one session
 
