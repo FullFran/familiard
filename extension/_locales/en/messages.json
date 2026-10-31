@@ -1,0 +1,15 @@
+{
+  "extensionName": { "message": "familiard" },
+  "extensionDescription": { "message": "Bring a desktop pet to a ChatGPT conversation, to tell you when it finishes." },
+  "bringButton": { "message": "Bring a waifu to this conversation" },
+  "dismissButton": { "message": "Dismiss" },
+  "petLabel": { "message": "Pet" },
+  "nameLabel": { "message": "Name" },
+  "petOut": { "message": "$NAME$ (already out)", "placeholders": { "name": { "content": "$1" } } },
+  "bound": { "message": "$PET$ is with this conversation.", "placeholders": { "pet": { "content": "$1" } } },
+  "boundNamed": { "message": "$PET$ is with this conversation, as “$NAME$”.", "placeholders": { "pet": { "content": "$1" }, "name": { "content": "$2" } } },
+  "notAConversation": { "message": "Open a ChatGPT conversation to bring a pet to it." },
+  "emptyGallery": { "message": "Your gallery is empty. Add a pet with: familiard add <folder>" },
+  "allOut": { "message": "All your pets are out. Each one can only be in one place." },
+  "hostUnavailable": { "message": "Cannot reach familiard. Run: familiard browser install" }
+}

@@ -13,7 +13,7 @@ familiard summon mine
 | --- | --- |
 | `familiard add <folder> [--as id]` | Copies the pet in. The first one becomes the default |
 | `familiard pets [--json]`, `-l` | Lists the gallery: `*` marks the default, `(open)` what is out |
-| `familiard summon [id] [--here] [--still] [--name TEXT] [--at X,Y]`, `-s` | Brings out a pet, the default if none is named |
+| `familiard summon [id] [--here \| --session ID] [--still] [--name TEXT] [--at X,Y]`, `-s` | Brings out a pet, the default if none is named |
 | `familiard dismiss [id]`, `--all`, `-d` | Sends pets away |
 | `familiard default <id>` | Chooses the default |
 | `familiard remove <id>` | Deletes a pet from the gallery, and sends it away if it is out |
@@ -31,10 +31,15 @@ in `~/.local/share/familiard` (`%APPDATA%\\familiard` on Windows,
 | `familiard summon mochi --here` | Follows only the next session in this folder, and leaves when it ends |
 | `familiard summon mochi --name "Bug del login"` | Follows every session, with that caption |
 | `familiard summon mochi --here --name "Bug del login"` | Both |
+| `familiard summon mochi --session claude:abc` | Follows only that exact session, and leaves when it ends |
 
 With `--here`, the pet stays idle until a session reports from this folder or one below it. That
 session claims the pet, and from then on no other session counts. A session that goes quiet keeps
 its pet; only its end sends the pet away, and `familiard dismiss` always works.
+
+`--session` is for a session with no folder to match, such as [a ChatGPT conversation](browser.md).
+It is the agent and the session's id as a hook reports them, `<agent>:<session>`, and it cannot be
+combined with `--here`.
 
 A pet can only be out once, so `summon` on a pet that is already out changes nothing about it.
 

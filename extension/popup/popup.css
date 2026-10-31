@@ -1,0 +1,36 @@
+:root {
+  color-scheme: light dark;
+  font: 14px system-ui, sans-serif;
+}
+
+body {
+  width: 280px;
+  margin: 12px;
+}
+
+p {
+  margin: 0 0 8px;
+}
+
+label {
+  display: block;
+  margin-bottom: 8px;
+}
+
+label span {
+  display: block;
+  margin-bottom: 2px;
+}
+
+select,
+input,
+button {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 6px;
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}

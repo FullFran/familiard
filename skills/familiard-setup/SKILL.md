@@ -48,6 +48,15 @@ Use when the user wants familiard installed, a pet loaded or changed, or their c
 5. Hooks: find the agents installed, confirm with the user, then apply `references/agents.md`. Use the absolute path of the binary from `command -v familiard`. OpenCode and Pi use the templates in `assets/`; replace `__FAMILIARD_BIN__` with that path as a quoted string.
 6. Verify the wiring: run `familiard hook --agent <agent> --session test --event working`, ask the user to confirm the pet changed, then send `--event ended`.
 
+## ChatGPT in the browser
+
+Use when the user wants a pet to tell them when a ChatGPT conversation finishes. See `references/browser.md`.
+
+1. Ask first, and name the files: `familiard browser install` writes one manifest per browser. It refuses to touch a manifest that does not name familiard; report that rather than removing the file.
+2. Tell the user to load the `extension/` folder of the repository themselves, as the table in `references/browser.md` says. On Firefox and Zen a temporary add-on is gone when the browser closes. Never sign, publish or submit it anywhere on their behalf.
+3. Say plainly that OpenAI does not support this, that it may break, and that it has not been tested on the real site. It reads the stop button, the conversation id and the title, and never the messages.
+4. To bind a pet to one known session without the extension, run `familiard summon <id> --session <agent>:<session>`.
+
 ## Output Contract
 
 Return the pet's id, the command to open it, each config changed with its backup, each agent as exercised or only configured, and any manual step left (Codex needs `/hooks` to trust the hook).
@@ -56,3 +65,4 @@ Return the pet's id, the command to open it, each config changed with its backup
 
 - `references/pets.md`: pet format, a pet for one session, getting ChatGPT pets, troubleshooting.
 - `references/agents.md`: hook entries per agent.
+- `references/browser.md`: the ChatGPT extension, what it reads, and how to fix its selectors.

@@ -152,6 +152,7 @@ dependencies = [
  "familiard-stage-terminal",
  "familiard-stage-wayland",
  "familiard-stage-windows",
+ "image",
  "serde_json",
  "windows-sys 0.59.0",
 ]
