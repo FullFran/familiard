@@ -1,0 +1,13 @@
+[package]
+name = "familiard"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+familiard-application = { path = "../application" }
+familiard-pack = { path = "../pack" }
+familiard-stage-terminal = { path = "../stage-terminal" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+familiard-stage-wayland = { path = "../stage-wayland" }

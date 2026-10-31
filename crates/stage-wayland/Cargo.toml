@@ -1,0 +1,13 @@
+[package]
+name = "familiard-stage-wayland"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+familiard-application = { path = "../application" }
+familiard-domain = { path = "../domain" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+smithay-client-toolkit = { version = "0.21", default-features = false, features = ["calloop"] }
+wayland-client = "0.31"
