@@ -1,10 +1,26 @@
 # Pets
 
-A pet is a folder with a spritesheet and a `pet.json`. Point familiard at the folder:
+A pet is a folder with a spritesheet and a `pet.json`. Add it to your gallery and bring it out:
 
 ```sh
-familiard --pet ~/pets/mine
+familiard add ~/pets/mine
+familiard summon mine
 ```
+
+## Your gallery
+
+| Command | What it does |
+| --- | --- |
+| `familiard add <folder> [--as id]` | Copies the pet in. The first one becomes the default |
+| `familiard pets [--json]` | Lists the gallery: `*` marks the default, `(open)` what is out |
+| `familiard summon [id] [--at X,Y]` | Brings out a pet, the default if none is named |
+| `familiard dismiss [id]`, `--all` | Sends pets away |
+| `familiard default <id>` | Chooses the default |
+| `familiard remove <id>` | Deletes a pet from the gallery, and sends it away if it is out |
+
+Each open pet is its own small process, and they all react to your agents. The gallery lives
+in `~/.local/share/familiard` (`%APPDATA%\\familiard` on Windows,
+`~/Library/Application Support/familiard` on macOS), or wherever `FAMILIARD_HOME` points.
 
 ## Use your ChatGPT pet
 
@@ -15,7 +31,7 @@ familiard --pet ~/pets/mine
    { "id": "mine", "displayName": "My pet", "spritesheetPath": "spritesheet.png" }
    ```
 
-3. Run `familiard --pet <folder>`.
+3. Run `familiard add <folder>`, then `familiard summon mine`.
 
 ### Getting the file
 
@@ -29,7 +45,8 @@ Both sheet sizes work: 1536x1872 (version 1) and 1536x2288 (version 2, which add
 looking poses that familiard does not use yet).
 
 Any pack in the Codex pet format works the same way, including community ones. Each pet
-keeps its own license, so check it before sharing one.
+keeps its own license, so check it before sharing one. A pack with no license, or a fan pack of
+someone else's characters, is for your own gallery only.
 
 ## Spritesheet layout
 
@@ -66,5 +83,5 @@ Speed is fixed per animation: idle and waving 3 fps, waiting 4, working and jump
 To check a pack without opening a window:
 
 ```sh
-familiard --pet <folder> --stage terminal --rows 16 --frames 1
+familiard run --pet <folder> --stage terminal --rows 16 --frames 1
 ```

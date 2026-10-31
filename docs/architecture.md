@@ -8,7 +8,8 @@ cli (composition root: picks the adapters)
  ├─ pack             PetSource: reads pet folders
  ├─ stage-wayland    Stage: floating surface on Wayland
  ├─ stage-terminal   Stage: half blocks in a terminal
- ├─ agents           ActivityFeed: hears hooks over a loopback socket
+ ├─ gallery          the pets the user keeps, and the default one
+ ├─ agents           ActivityFeed and Roster: every open pet hears hooks over loopback
  └─ application      the ports, and Player, which runs the pet for a stage
      └─ domain       Pet, Companion, Activity, Sprite
 ```

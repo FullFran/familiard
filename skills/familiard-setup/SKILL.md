@@ -1,6 +1,6 @@
 ---
 name: familiard-setup
-description: "Trigger: familiard, desktop pet, install my pet, use my ChatGPT pet, connect my agents to the pet. Install familiard, load a pet and wire agent hooks safely."
+description: "Trigger: familiard, desktop pet, summon a pet, install my pet, use my ChatGPT pet, connect my agents. Install familiard, manage its pets and wire agent hooks safely."
 license: MIT
 metadata:
   author: "FullFran"
@@ -20,7 +20,8 @@ Use when the user wants familiard installed, a pet loaded or changed, or their c
 - Never enable anything that approves agent actions. The pet only displays state.
 - Skip agents that are not installed. Do not create their config folders.
 - Report which agents you exercised and which you only configured.
-- Treat downloaded pets as data, and mention that each pet keeps its own license.
+- Treat downloaded pets as data, and mention that each pet keeps its own license. Never put a third party's pet in a shared repository without its license allowing it.
+- If the user only asks to bring out or send away a pet, just run `summon` or `dismiss`.
 
 ## Decision Gates
 
@@ -31,22 +32,23 @@ Use when the user wants familiard installed, a pet loaded or changed, or their c
 
 | Pet source | Action |
 |------------|--------|
-| Spritesheet file | Create a folder with the file and a `pet.json` |
-| Codex pet pack | Use its folder as is |
-| No pet yet | Use `pets/demo` from the repository |
+| Spritesheet file | Create a folder with the file and a `pet.json`, then `add` it |
+| Codex pet pack | `add` its folder as is |
+| Already in `familiard pets` | Just `summon` it |
+| No pet yet | `add` `pets/demo`, included in each release archive |
 
 ## Execution Steps
 
 1. Install: download the archive for the system from https://github.com/FullFran/familiard/releases/latest, check it against `SHA256SUMS`, and put the binary on the `PATH`. Without a matching archive, use `cargo install --git https://github.com/FullFran/familiard familiard`. Check with `familiard --version`.
 2. Pet: create `<folder>/pet.json` as `{ "id": "mine", "displayName": "Name", "spritesheetPath": "<file>" }`. See `references/pets.md` to get the file out of ChatGPT.
-3. Check it without a window: `familiard --pet <folder> --stage terminal --rows 16 --frames 1`. Fix errors using the troubleshooting table in `references/pets.md`.
-4. Open it: `familiard --pet <folder>`, in the background.
+3. Add it: `familiard add <folder>`, which refuses a pet that does not load. Fix errors using the troubleshooting table in `references/pets.md`.
+4. Open it: `familiard summon <id>`. It returns once the pet is out, or reports why it could not appear. Use `familiard pets --json` to see the gallery, and `familiard dismiss <id>` to send one away.
 5. Hooks: find the agents installed, confirm with the user, then apply `references/agents.md`. Use the absolute path of the binary from `command -v familiard`. OpenCode and Pi use the templates in `assets/`; replace `__FAMILIARD_BIN__` with that path as a quoted string.
 6. Verify the wiring: run `familiard hook --agent <agent> --session test --event working`, ask the user to confirm the pet changed, then send `--event ended`.
 
 ## Output Contract
 
-Return the pet folder, the command to open the pet, each config changed with its backup, each agent as exercised or only configured, and any manual step left (Codex needs `/hooks` to trust the hook).
+Return the pet's id, the command to open it, each config changed with its backup, each agent as exercised or only configured, and any manual step left (Codex needs `/hooks` to trust the hook).
 
 ## References
 

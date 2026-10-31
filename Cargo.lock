@@ -125,9 +125,11 @@ dependencies = [
  "familiard-agents",
  "familiard-application",
  "familiard-domain",
+ "familiard-gallery",
  "familiard-pack",
  "familiard-stage-terminal",
  "familiard-stage-wayland",
+ "serde_json",
 ]
 
 [[package]]
@@ -150,6 +152,14 @@ dependencies = [
 [[package]]
 name = "familiard-domain"
 version = "0.1.0"
+
+[[package]]
+name = "familiard-gallery"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "familiard-pack"

@@ -1,7 +1,7 @@
 # Reacting to coding agents
 
 Agents run a command on each event (a hook). That command is `familiard hook`, which tells
-the running pet over a loopback socket:
+every open pet over a loopback socket:
 
 | What the agent does | The pet |
 | --- | --- |
@@ -81,8 +81,6 @@ familiard hook --agent build --session nightly --event done
 ## What the hook guarantees
 
 - It prints nothing and always exits 0, so it cannot get in an agent's way.
-- If the pet is closed, the event is dropped and the hook returns at once.
-- The pet listens on loopback only. Local programs can change its mood, and nothing else.
+- If no pet is open, the event is dropped and the hook returns at once.
+- The pet listens on loopback only. Local programs can change its mood or send it away, and nothing else.
 - The pet never answers an agent or approves anything.
-
-Set `FAMILIARD_PORT` to use another port than 47629, on both the pet and the hooks.

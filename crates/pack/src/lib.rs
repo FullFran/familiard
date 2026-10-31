@@ -45,6 +45,11 @@ impl PetSource for PetPack {
                 .map_err(|e| format!("{}: {e}", manifest_path.display()))?,
         )
         .map_err(|e| format!("{}: {e}", manifest_path.display()))?;
+        if manifest.spritesheet_path.components().count() != 1
+            || manifest.spritesheet_path.file_name().is_none()
+        {
+            return Err(format!("{}: the spritesheet must be a file in the same folder", manifest_path.display()).into());
+        }
         let sheet_path = self.directory.join(&manifest.spritesheet_path);
         let sheet = image::open(&sheet_path)
             .map_err(|e| format!("{}: {e}", sheet_path.display()))?
@@ -146,6 +151,19 @@ mod tests {
         assert_eq!(pet.clip(Mood::Done).len(), 4);
         assert_eq!(pet.clip(Mood::Celebrating).len(), 5);
         assert_eq!(pet.clip(Mood::Working).len(), 6);
+    }
+
+    #[test]
+    fn a_spritesheet_outside_the_folder_is_refused() {
+        let dir = std::env::temp_dir().join(format!("familiard-escape-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for path in ["../sheet.png", "/etc/passwd", ".."] {
+            let manifest = format!(r#"{{"displayName":"A","spritesheetPath":"{path}"}}"#);
+            std::fs::write(dir.join("pet.json"), manifest).unwrap();
+            let error = PetPack::new(&dir).load().unwrap_err().to_string();
+            assert!(error.contains("same folder"), "{path}: {error}");
+        }
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -1,6 +1,7 @@
 //! Hears from coding agents. Their hooks run `familiard hook`, which translates what the
-//! agent sends ([`interpret`]) and passes it over a loopback socket ([`send`]) to the
-//! running pet ([`LocalFeed`]). A plain TCP line keeps this the same on every platform.
+//! agent sends ([`interpret`]) and passes it over loopback to every pet in the
+//! [`Roster`], each of which listens with a [`LocalFeed`]. A plain TCP line keeps this the
+//! same on every platform.
 //!
 //! The event tables are ported from AgentPet (MIT), github.com/ntd4996/agentpet.
 use familiard_application::{ActivityFeed, Failure};
@@ -9,16 +10,13 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
+use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
-pub const DEFAULT_PORT: u16 = 47629;
 const MAX_LINE: u64 = 4096;
-
-/// The port to use: `FAMILIARD_PORT` if it holds a valid one, else the default.
-pub fn port() -> u16 {
-    std::env::var("FAMILIARD_PORT").ok().and_then(|value| value.parse().ok()).unwrap_or(DEFAULT_PORT)
-}
+const TIMEOUT: Duration = Duration::from_millis(200);
+const DISMISS: &str = "dismiss";
 
 /// Translates an agent's own event name. `None` means the event changes nothing.
 pub fn signal_for(agent: &str, event: &str) -> Option<Signal> {
@@ -103,51 +101,131 @@ fn decode(line: &str) -> Option<Report> {
     Some(Report { signal: signal_for("", &line.signal)?, session: line.session })
 }
 
-/// Tells the running pet. Fails quickly when there is none, so an agent never waits.
-pub fn send(report: &Report, port: u16) -> Result<(), Failure> {
-    let address = SocketAddr::from(([127, 0, 0, 1], port));
-    let timeout = Duration::from_millis(200);
-    let mut stream = TcpStream::connect_timeout(&address, timeout)?;
-    stream.set_write_timeout(Some(timeout))?;
-    let line = Line { session: report.session.clone(), signal: name_of(report.signal).into() };
-    writeln!(stream, "{}", serde_json::to_string(&line)?)?;
-    Ok(())
+fn connect(port: u16) -> std::io::Result<TcpStream> {
+    let stream = TcpStream::connect_timeout(&SocketAddr::from(([127, 0, 0, 1], port)), TIMEOUT)?;
+    stream.set_write_timeout(Some(TIMEOUT))?;
+    Ok(stream)
+}
+
+/// The pets open right now: one file per pet, holding the port it listens on. A pet that
+/// died leaves its file behind, and the next one to fail to reach it removes it.
+#[derive(Debug, Clone)]
+pub struct Roster {
+    directory: PathBuf,
+}
+
+impl Roster {
+    pub fn new(directory: impl Into<PathBuf>) -> Self {
+        Self { directory: directory.into() }
+    }
+
+    fn register(&self, id: &str, port: u16) -> std::io::Result<()> {
+        std::fs::create_dir_all(&self.directory)?;
+        std::fs::write(self.directory.join(id), port.to_string())
+    }
+
+    pub fn unregister(&self, id: &str) {
+        let _ = std::fs::remove_file(self.directory.join(id));
+    }
+
+    fn entries(&self) -> Vec<(String, u16)> {
+        let Ok(files) = std::fs::read_dir(&self.directory) else { return Vec::new() };
+        files
+            .flatten()
+            .filter_map(|file| {
+                let port = std::fs::read_to_string(file.path()).ok()?.trim().parse().ok()?;
+                Some((file.file_name().into_string().ok()?, port))
+            })
+            .collect()
+    }
+
+    /// The ids of the pets that answer, forgetting the ones that do not.
+    pub fn open(&self) -> Vec<String> {
+        let mut open: Vec<String> = self
+            .entries()
+            .into_iter()
+            .filter_map(|(id, port)| match connect(port) {
+                Ok(_) => Some(id),
+                Err(_) => {
+                    self.unregister(&id);
+                    None
+                }
+            })
+            .collect();
+        open.sort();
+        open
+    }
+
+    /// Tells every open pet. Fails quickly, so an agent never waits.
+    pub fn broadcast(&self, report: &Report) {
+        let line = Line { session: report.session.clone(), signal: name_of(report.signal).into() };
+        let Ok(text) = serde_json::to_string(&line) else { return };
+        for (id, port) in self.entries() {
+            match connect(port) {
+                Ok(mut stream) => {
+                    let _ = writeln!(stream, "{text}");
+                }
+                Err(_) => self.unregister(&id),
+            }
+        }
+    }
+
+    /// Asks a pet to leave. Returns whether it was there to ask.
+    pub fn dismiss(&self, id: &str) -> bool {
+        let found = self.entries().into_iter().find(|(entry, _)| entry == id);
+        let Some(Ok(mut stream)) = found.map(|(_, port)| connect(port)) else {
+            self.unregister(id);
+            return false;
+        };
+        writeln!(stream, "{DISMISS}").is_ok()
+    }
 }
 
 /// Listens on loopback only, so nothing outside this machine can reach the pet. Local
-/// programs can make it change mood, and that is all they can do.
+/// programs can make it change mood or leave, and that is all they can do.
 pub struct LocalFeed {
-    port: u16,
+    roster: Roster,
+    id: String,
 }
 
 impl LocalFeed {
-    pub fn new(port: u16) -> Self {
-        Self { port }
+    pub fn new(roster: Roster, id: impl Into<String>) -> Self {
+        Self { roster, id: id.into() }
     }
 }
 
 impl ActivityFeed for LocalFeed {
     fn listen(self: Box<Self>, inbox: Sender<Report>) -> Result<(), Failure> {
-        let listener = TcpListener::bind(("127.0.0.1", self.port))
-            .map_err(|e| format!("cannot listen on port {}: {e}", self.port))?;
+        let listener = TcpListener::bind(("127.0.0.1", 0)).map_err(|e| format!("cannot listen: {e}"))?;
+        let port = listener.local_addr()?.port();
+        self.roster.register(&self.id, port).map_err(|e| format!("cannot register the pet: {e}"))?;
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
-                if let Some(report) = read_report(stream) {
-                    if inbox.send(report).is_err() {
-                        return;
+                // Its own thread, so that a slow client delays nobody else.
+                let (roster, id, inbox) = (self.roster.clone(), self.id.clone(), inbox.clone());
+                std::thread::spawn(move || match read_line(stream).as_deref().map(str::trim) {
+                    Some(DISMISS) => {
+                        roster.unregister(&id);
+                        std::process::exit(0);
                     }
-                }
+                    Some(line) => {
+                        if let Some(report) = decode(line) {
+                            let _ = inbox.send(report);
+                        }
+                    }
+                    None => {}
+                });
             }
         });
         Ok(())
     }
 }
 
-fn read_report(stream: TcpStream) -> Option<Report> {
-    stream.set_read_timeout(Some(Duration::from_millis(200))).ok()?;
+fn read_line(stream: TcpStream) -> Option<String> {
+    stream.set_read_timeout(Some(TIMEOUT)).ok()?;
     let mut line = String::new();
     BufReader::new(stream.take(MAX_LINE)).read_line(&mut line).ok()?;
-    decode(&line)
+    Some(line)
 }
 
 #[cfg(test)]
@@ -220,41 +298,74 @@ mod tests {
         assert_eq!(signal("claude", r#"{"hook_event_name":5}"#), None);
     }
 
-    #[test]
-    fn a_report_travels_from_send_to_the_inbox() {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
-        let (outbox, inbox) = channel();
-        Box::new(LocalFeed::new(port)).listen(outbox).unwrap();
-        let report = Report { session: "claude:a b".into(), signal: Signal::Waiting };
-        send(&report, port).unwrap();
-        assert_eq!(inbox.recv_timeout(Duration::from_secs(2)).unwrap(), report);
+    fn roster() -> Roster {
+        use std::sync::atomic::{AtomicU32, Ordering};
+        static NEXT: AtomicU32 = AtomicU32::new(0);
+        let unique = format!("familiard-roster-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed));
+        Roster::new(std::env::temp_dir().join(unique))
     }
 
     #[test]
-    fn a_silent_or_oversized_client_does_not_stop_the_feed() {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        drop(listener);
+    fn a_report_reaches_every_open_pet() {
+        let roster = roster();
+        let (first_outbox, first) = channel();
+        let (second_outbox, second) = channel();
+        Box::new(LocalFeed::new(roster.clone(), "a")).listen(first_outbox).unwrap();
+        Box::new(LocalFeed::new(roster.clone(), "b")).listen(second_outbox).unwrap();
+        assert_eq!(roster.open(), ["a", "b"]);
+        let report = Report { session: "claude:a b".into(), signal: Signal::Waiting };
+        roster.broadcast(&report);
+        assert_eq!(first.recv_timeout(Duration::from_secs(2)).unwrap(), report);
+        assert_eq!(second.recv_timeout(Duration::from_secs(2)).unwrap(), report);
+    }
+
+    #[test]
+    fn a_pet_that_died_is_forgotten() {
+        let roster = roster();
+        let free = TcpListener::bind(("127.0.0.1", 0)).unwrap().local_addr().unwrap().port();
+        roster.register("gone", free).unwrap();
+        assert!(roster.open().is_empty());
+        assert!(roster.entries().is_empty());
+        roster.register("gone", free).unwrap();
+        roster.broadcast(&Report { session: "s".into(), signal: Signal::Done });
+        assert!(roster.entries().is_empty());
+        assert!(!roster.dismiss("gone"));
+    }
+
+    #[test]
+    fn nobody_home_is_not_an_error() {
+        let roster = roster();
+        roster.broadcast(&Report { session: "s".into(), signal: Signal::Done });
+        assert!(roster.open().is_empty());
+        assert!(!roster.dismiss("nobody"));
+    }
+
+    #[test]
+    fn many_silent_clients_do_not_delay_a_report() {
+        let roster = roster();
         let (outbox, inbox) = channel();
-        Box::new(LocalFeed::new(port)).listen(outbox).unwrap();
-        let address = SocketAddr::from(([127, 0, 0, 1], port));
-        let silent = TcpStream::connect(address).unwrap();
-        let mut noisy = TcpStream::connect(address).unwrap();
-        let _ = noisy.write_all(&vec![b'x'; 100_000]);
-        drop(noisy);
+        Box::new(LocalFeed::new(roster.clone(), "p")).listen(outbox).unwrap();
+        let port = roster.entries()[0].1;
+        let silent: Vec<_> = (0..20).map(|_| connect(port).unwrap()).collect();
         let report = Report { session: "s".into(), signal: Signal::Done };
-        send(&report, port).unwrap();
-        assert_eq!(inbox.recv_timeout(Duration::from_secs(3)).unwrap(), report);
+        roster.broadcast(&report);
+        assert_eq!(inbox.recv_timeout(Duration::from_millis(150)).unwrap(), report);
         drop(silent);
     }
 
     #[test]
-    fn a_port_in_use_is_reported() {
-        let listener = TcpListener::bind(("127.0.0.1", 0)).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let error = Box::new(LocalFeed::new(port)).listen(channel().0).unwrap_err();
-        assert!(error.to_string().contains(&port.to_string()));
+    fn a_silent_or_oversized_client_does_not_stop_the_feed() {
+        let roster = roster();
+        let (outbox, inbox) = channel();
+        Box::new(LocalFeed::new(roster.clone(), "p")).listen(outbox).unwrap();
+        let port = roster.entries()[0].1;
+        let silent = connect(port).unwrap();
+        let mut noisy = connect(port).unwrap();
+        let _ = noisy.write_all(&vec![b'x'; 100_000]);
+        drop(noisy);
+        let report = Report { session: "s".into(), signal: Signal::Done };
+        roster.broadcast(&report);
+        assert_eq!(inbox.recv_timeout(Duration::from_secs(3)).unwrap(), report);
+        drop(silent);
     }
 }
