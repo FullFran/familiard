@@ -202,9 +202,9 @@ pub fn run(args: Vec<String>) -> Result<(), Failure> {
     let user = user.ok_or("HOME is not set")?;
     let config = std::env::var_os("XDG_CONFIG_HOME").map_or_else(|| user.join(".config"), PathBuf::from);
     let targets = targets(system(), &user, &config, &home());
-    match args.first().map(String::as_str) {
-        Some("install") => install(&targets),
-        Some("uninstall") => uninstall(&targets),
+    match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+        ["install"] => install(&targets),
+        ["uninstall"] => uninstall(&targets),
         _ => Err(USAGE.into()),
     }
 }

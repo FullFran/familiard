@@ -7,17 +7,22 @@ use std::process::{Command, Output};
 use std::sync::atomic::{AtomicU32, Ordering};
 
 const FAKE_CURL: &str = r#"#!/bin/sh
+first=$1
 while [ $# -gt 1 ]; do
   [ "$1" = --output ] && out=$2
   shift
 done
 echo "$1" >> "$ROOT/requests"
+echo "$first" >> "$ROOT/first-arguments"
+/bin/ls -ld "${out%/*}" >> "$ROOT/folders"
 case "$1" in
+  *redirected*) echo moved > "$out"; printf 302; exit 0 ;;
   https://petdex.dev/api/manifest) /bin/cp "$ROOT/manifest.json" "$out" ;;
   https://assets.petdex.dev/pets/*/petjson.json) /bin/cp "$ROOT/pet.json" "$out" ;;
   https://assets.petdex.dev/pets/*/sprite.png) /bin/cp "$DEMO/spritesheet.png" "$out" ;;
   *) echo "curl: (22) not found" >&2; exit 22 ;;
 esac
+printf 200
 "#;
 
 struct Root(PathBuf);
@@ -47,6 +52,9 @@ impl Root {
             entry("evil-json", "Evil", "https://evil.example/petjson.json", &format!("{good}sprite.png")),
             entry("evil-sheet", "Evil", &format!("{good}petjson.json"), "https://assets.petdex.dev.evil.example/pets/x/sprite.png"),
             entry("climber", "Climber", &format!("{good}petjson.json"), "https://assets.petdex.dev/pets/../../sprite.png"),
+            entry("moved", "Moved", &format!("{good}redirected.json"), &format!("{good}sprite.png")),
+            entry("community", "Community", "https://assets.petdex.dev/community/x/petjson.json", "https://assets.petdex.dev/community/x/sprite.png"),
+            r#"{"slug":"incomplete"}"#.to_string(),
             entry("broken", "Broken", &format!("{good}missing.json"), &format!("{good}sprite.png")),
             r#"{"slug":"anonymous","displayName":"Anonymous","submittedBy":null,"petJsonUrl":"unused","spritesheetUrl":"unused"}"#.to_string(),
             entry("odd-format", "Odd", &format!("{good}petjson.json"), &format!("{good}sprite.exe")),
@@ -187,4 +195,59 @@ fn a_folder_still_works_as_before() {
     let demo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../pets/demo");
     assert!(root.ok(&["add", demo.to_str().unwrap()]).contains("familiard summon demo"));
     assert_eq!(root.requests(), "", "a local folder touches no network");
+}
+
+#[test]
+fn curl_ignores_the_users_config_and_works_in_a_private_folder() {
+    let root = Root::new();
+    root.ok(&["add", "petdex:elaina"]);
+    let first = std::fs::read_to_string(root.0.join("first-arguments")).unwrap();
+    assert!(first.lines().all(|argument| argument == "-q"), "{first}");
+    let folders = std::fs::read_to_string(root.0.join("folders")).unwrap();
+    assert!(folders.lines().all(|line| line.starts_with("drwx------")), "{folders}");
+}
+
+#[test]
+fn a_folder_already_at_a_guessable_name_is_never_used() {
+    let root = Root::new();
+    root.ok(&["add", "petdex:elaina"]);
+    let folders = std::fs::read_to_string(root.0.join("folders")).unwrap();
+    let names: std::collections::HashSet<_> = folders.lines().map(|line| line.rsplit('/').next().unwrap()).collect();
+    assert_eq!(names.len(), 2, "each download has its own unpredictable folder: {folders}");
+    assert!(names.iter().all(|name| name.len() > "familiard-petdex-1234-".len() + 8), "{names:?}");
+}
+
+#[test]
+fn a_redirect_is_a_failure_and_never_saved_as_the_pet() {
+    let root = Root::new();
+    let error = root.fails(&["add", "petdex:moved"]);
+    assert!(error.contains("could not download"), "{error}");
+    assert!(!root.pets_folder().join("moved").exists());
+}
+
+#[test]
+fn every_path_on_the_asset_host_is_accepted() {
+    let root = Root::new();
+    let found = root.fails(&["add", "petdex:community"]);
+    assert!(found.contains("could not download") && !found.contains("not a Petdex asset"), "{found}");
+}
+
+#[test]
+fn one_bad_entry_does_not_break_the_list() {
+    let root = Root::new();
+    assert!(root.ok(&["search", "elaina"]).contains("elaina  Elaina"));
+    assert!(root.fails(&["add", "petdex:incomplete"]).contains("no pet called"));
+}
+
+#[test]
+fn a_name_is_cut_and_loses_invisible_characters() {
+    let root = Root::new();
+    let long = "A".repeat(500);
+    let hostile = format!("{{\"id\":\"x\",\"displayName\":\"Eli\\u202eaina{long}\",\"spritesheetPath\":\"x\"}}");
+    std::fs::write(root.0.join("pet.json"), hostile).unwrap();
+    root.ok(&["add", "petdex:elaina"]);
+    let saved = std::fs::read_to_string(root.pets_folder().join("elaina/pet.json")).unwrap();
+    let saved: serde_json::Value = serde_json::from_str(&saved).unwrap();
+    let name = saved["displayName"].as_str().unwrap();
+    assert!(name.starts_with("Eliaina") && name.chars().count() <= 80, "{name}");
 }

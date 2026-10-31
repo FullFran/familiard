@@ -30,12 +30,14 @@ selectors may already be out of date. If it does not react, see
    Firefox can treat that permission as optional, and without it the button will not appear.
 4. Reload any ChatGPT tab that was already open.
 
-Firefox and Zen need a signed add-on to keep one installed after a restart, and this one is not
-signed. There are reports that the preference above does nothing on Zen. So on Zen, for now, load
-it again each time you open the browser.
+Firefox and Zen need a signed add-on to keep one installed after a restart. Each
+[release](https://github.com/FullFran/familiard/releases) has one, signed by Mozilla but not listed
+on its store: `familiard-extension-<version>-firefox.xpi`. Open the file with the browser to install
+it. Chromium browsers use the `-chromium.zip` from the same release, unpacked, as above.
 
-You need Firefox or Zen 121, or Chromium 121, or newer: those are the first versions that accept a
-single manifest for both.
+You need Firefox or Zen 142, or Chromium 121, or newer. Firefox 142 is the first to read this
+add-on's statement that it collects no data, and Chromium 121 the first to accept one manifest for
+both.
 
 ## Use it
 

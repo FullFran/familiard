@@ -38,7 +38,7 @@ familiard summon elaina-3
 
 This uses its public list and needs `curl`, with no account. The pet goes to the familiard
 gallery only: `npx petdex install` also copies it to `~/.codex/pets`, and this does not.
-Files are accepted only from `assets.petdex.dev`.
+Files are accepted only from `assets.petdex.dev`, and `~/.curlrc` is ignored.
 
 Petdex's pets are fan art sent in by its users, and Petdex claims no rights over the characters.
 Keep them on your machine: do not put them in a shared repository.
@@ -61,7 +61,7 @@ its pet; only its end sends the pet away, and `familiard dismiss` always works.
 It is the agent and the session's id as a hook reports them, `<agent>:<session>`, and it cannot be
 combined with `--here`.
 
-A pet can only be out once. `summon` on a pet that is already out changes nothing about it, and with `--here`, `--session`, `--name` or `--still` it fails instead, because those could not apply: dismiss it first.
+A pet can only be out once. `summon` on a pet that is already out changes nothing about it, and with `--here`, `--session`, `--name` or `--still` it fails instead, because those could not apply: dismiss it first. `--at` and `--stage` only matter when it appears, so they are ignored on a pet already out.
 
 The caption sits above the pet's head and says what the session is doing. Its text is the name
 you gave, or else the last part of the folder:

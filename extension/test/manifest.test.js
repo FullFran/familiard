@@ -28,7 +28,7 @@ test("it is Manifest V3 with the background each family reads", () => {
 
 test("it states the first versions that accept both background keys", () => {
   assert.equal(manifest.minimum_chrome_version, "121");
-  assert.equal(manifest.browser_specific_settings.gecko.strict_min_version, "121.0");
+  assert.equal(manifest.browser_specific_settings.gecko.strict_min_version, "142.0");
 });
 
 test("the installer and the manifest agree on both extension ids", () => {

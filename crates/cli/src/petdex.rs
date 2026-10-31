@@ -6,18 +6,26 @@
 use familiard_application::Failure;
 use serde::Deserialize;
 use serde_json::Value;
+use std::collections::hash_map::RandomState;
 use std::fs;
+use std::hash::{BuildHasher, Hasher};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const MANIFEST: &str = "https://petdex.dev/api/manifest";
 /// Every file must come from here, whatever the manifest says.
-const ASSETS: &str = "https://assets.petdex.dev/pets/";
+const ASSETS: &str = "https://assets.petdex.dev/";
+const MAX_NAME: usize = 80;
 const MAX_DOWNLOAD: &str = "67108864";
 const MAX_RESULTS: usize = 30;
 
 #[derive(Deserialize)]
+struct RawManifest {
+    pets: Vec<Value>,
+}
+
 struct Manifest {
     pets: Vec<Listing>,
 }
@@ -48,16 +56,33 @@ impl Drop for Download {
     }
 }
 
+/// A new folder only this user can enter. `curl` writes by name, so one planted in a shared
+/// temporary directory beforehand could send those writes anywhere: a name that already exists
+/// is never reused, and the name cannot be guessed from the process id.
 fn scratch() -> Result<Download, Failure> {
-    let folder = std::env::temp_dir().join(format!("familiard-petdex-{}", std::process::id()));
-    fs::create_dir_all(&folder)?;
-    Ok(Download(folder))
+    let mut builder = fs::DirBuilder::new();
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut builder, 0o700);
+    for attempt in 0..32u32 {
+        let clock = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |since| since.as_nanos());
+        let unguessable = RandomState::new().build_hasher().finish();
+        let name = format!("familiard-petdex-{}-{clock:x}-{unguessable:016x}-{attempt}", std::process::id());
+        let folder = std::env::temp_dir().join(name);
+        match builder.create(&folder) {
+            Ok(()) => return Ok(Download(folder)),
+            Err(error) if error.kind() == ErrorKind::AlreadyExists => {}
+            Err(error) => return Err(error.into()),
+        }
+    }
+    Err("could not create a temporary folder".into())
 }
 
 /// Only the list may redirect, because it does today. A pet's files must come straight from
 /// `ASSETS`, or the check on their address would mean nothing.
 fn fetch(url: &str, to: &Path, redirects: bool) -> Result<(), Failure> {
     let mut command = Command::new("curl");
+    // Must come first: nothing in the user's ~/.curlrc may change these rules.
+    command.arg("-q");
     if redirects {
         command.args(["--location", "--proto-redir", "=https"]);
     }
@@ -65,18 +90,22 @@ fn fetch(url: &str, to: &Path, redirects: bool) -> Result<(), Failure> {
         .args(["--proto", "=https", "--tlsv1.2", "--fail", "--silent", "--show-error"])
         .args(["--max-time", "180", "--max-filesize", MAX_DOWNLOAD])
         .args(["--user-agent", concat!("familiard/", env!("CARGO_PKG_VERSION"))])
+        .args(["--write-out", "%{http_code}"])
         .arg("--output")
         .arg(to)
         .arg(url)
         .stdin(Stdio::null())
-        .stdout(Stdio::null())
         .output();
     match result {
         Err(error) if error.kind() == ErrorKind::NotFound => {
             Err("Petdex downloads need curl, which was not found".into())
         }
         Err(error) => Err(error.into()),
-        Ok(output) if output.status.success() => Ok(()),
+        // --fail lets a redirect through, with its body saved as if it were the file.
+        Ok(output) if output.status.success() && output.stdout.starts_with(b"2") => Ok(()),
+        Ok(output) if output.status.success() => {
+            Err(format!("could not download {url}: it answered {}", String::from_utf8_lossy(&output.stdout)).into())
+        }
         Ok(output) => {
             Err(format!("could not download {url}: {}", String::from_utf8_lossy(&output.stderr).trim()).into())
         }
@@ -87,12 +116,17 @@ fn manifest() -> Result<Manifest, Failure> {
     let folder = scratch()?;
     let path = folder.path().join("manifest.json");
     fetch(MANIFEST, &path, true)?;
-    serde_json::from_slice(&fs::read(&path)?).map_err(|error| format!("Petdex's list is not readable: {error}").into())
+    let raw: RawManifest = serde_json::from_slice(&fs::read(&path)?)
+        .map_err(|error| format!("Petdex's list is not readable: {error}"))?;
+    // One odd entry must not take the other five thousand down with it.
+    Ok(Manifest { pets: raw.pets.into_iter().filter_map(|pet| serde_json::from_value(pet).ok()).collect() })
 }
 
-/// Text from strangers, on its way to a terminal.
+/// Text from strangers, on its way to a terminal: no escapes, and nothing that reorders or hides
+/// what is around it.
 fn printable(text: &str) -> String {
-    text.chars().filter(|c| !c.is_control()).collect()
+    let invisible = |c: char| matches!(c, '\u{200b}'..='\u{200f}' | '\u{202a}'..='\u{202e}' | '\u{2060}'..='\u{206f}' | '\u{feff}');
+    text.chars().filter(|c| !c.is_control() && !invisible(*c)).take(MAX_NAME).collect()
 }
 
 fn asset(url: &str) -> Result<&str, Failure> {

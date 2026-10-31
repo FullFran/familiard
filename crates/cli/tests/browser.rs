@@ -176,3 +176,30 @@ fn bad_usage_is_explained() {
     }
     assert!(!sandbox.firefox().exists());
 }
+
+#[test]
+fn an_option_browser_does_not_know_stops_it_before_it_changes_anything() {
+    let sandbox = Sandbox::new();
+    assert!(sandbox.run(&["browser", "install"]).status.success());
+    let before = files_under(&sandbox.0);
+    for args in [&["browser", "uninstall", "--dry-run"][..], &["browser", "install", "--foo"]] {
+        assert_eq!(sandbox.run(args).status.code(), Some(1), "{args:?}");
+        assert_eq!(files_under(&sandbox.0), before, "{args:?}");
+    }
+}
+
+fn files_under(folder: &Path) -> Vec<std::path::PathBuf> {
+    let mut found = vec![];
+    let mut todo = vec![folder.to_path_buf()];
+    while let Some(next) = todo.pop() {
+        for entry in std::fs::read_dir(next).unwrap().flatten() {
+            if entry.path().is_dir() {
+                todo.push(entry.path());
+            } else {
+                found.push(entry.path());
+            }
+        }
+    }
+    found.sort();
+    found
+}

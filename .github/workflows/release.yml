@@ -83,6 +83,8 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: 22
@@ -102,7 +104,7 @@ jobs:
       - name: Attach the Chromium package
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" dist/*.zip --repo "$GITHUB_REPOSITORY"
+        run: gh release upload "$GITHUB_REF_NAME" dist/*.zip --clobber --repo "$GITHUB_REPOSITORY"
       - name: Sign for Firefox and Zen
         env:
           WEB_EXT_API_KEY: ${{ secrets.WEB_EXT_API_KEY }}
