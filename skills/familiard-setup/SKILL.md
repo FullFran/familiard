@@ -37,7 +37,7 @@ Use when the user wants familiard installed, a pet loaded or changed, or their c
 
 ## Execution Steps
 
-1. Install: `cargo install --git https://github.com/FullFran/familiard familiard`. It needs a Rust toolchain, and Linux needs no system libraries beyond libc.
+1. Install: download the archive for the system from https://github.com/FullFran/familiard/releases/latest, check it against `SHA256SUMS`, and put the binary on the `PATH`. Without a matching archive, use `cargo install --git https://github.com/FullFran/familiard familiard`. Check with `familiard --version`.
 2. Pet: create `<folder>/pet.json` as `{ "id": "mine", "displayName": "Name", "spritesheetPath": "<file>" }`. See `references/pets.md` to get the file out of ChatGPT.
 3. Check it without a window: `familiard --pet <folder> --stage terminal --rows 16 --frames 1`. Fix errors using the troubleshooting table in `references/pets.md`.
 4. Open it: `familiard --pet <folder>`, in the background.

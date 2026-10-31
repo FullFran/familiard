@@ -6,7 +6,8 @@ use familiard_stage_terminal::TerminalStage;
 use std::io::Read;
 use std::sync::mpsc::channel;
 
-const USAGE: &str = "usage: familiard --pet <dir> [--stage desktop|terminal] [--rows N] [--frames N] [--at X,Y]
+const USAGE: &str = "usage: familiard --version
+       familiard --pet <dir> [--stage desktop|terminal] [--rows N] [--frames N] [--at X,Y]
        familiard hook --agent <name> [--event <event>] [--session <id>]";
 const MAX_PAYLOAD: u64 = 1 << 20;
 
@@ -87,6 +88,10 @@ fn hook(args: impl Iterator<Item = String>) {
 
 fn main() {
     let mut args = std::env::args().skip(1).peekable();
+    if args.peek().is_some_and(|first| first == "--version") {
+        println!("familiard {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
     if args.peek().is_some_and(|first| first == "hook") {
         hook(args.skip(1));
         return;

@@ -74,3 +74,11 @@ fn bad_input_is_ignored_silently() {
         assert_silent_success(&hook(free_port(), args, stdin));
     }
 }
+
+#[test]
+fn reports_its_version() {
+    let output = Command::new(env!("CARGO_BIN_EXE_familiard")).arg("--version").output().unwrap();
+    assert!(output.status.success());
+    let expected = format!("familiard {}\n", env!("CARGO_PKG_VERSION"));
+    assert_eq!(String::from_utf8(output.stdout).unwrap(), expected);
+}

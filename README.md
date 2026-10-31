@@ -4,13 +4,19 @@ A very light desktop pet that lives on your screen. It can be dragged between mo
 lets clicks through its transparent areas, and reacts to your coding agents: working,
 waiting for you, celebrating when they finish. Early stage.
 
-```sh
-cargo install --git https://github.com/FullFran/familiard familiard
-git clone https://github.com/FullFran/familiard && cd familiard
+Download your system's archive from
+[Releases](https://github.com/FullFran/familiard/releases/latest), unpack it, and run:
 
-familiard --pet pets/demo                     # floating on the desktop
-familiard --pet pets/demo --stage terminal    # inside a truecolor terminal
+```sh
+./familiard --pet pets/demo                     # floating on the desktop
+./familiard --pet pets/demo --stage terminal    # inside a truecolor terminal
 ```
+
+With Rust installed, you can also use
+`cargo install --git https://github.com/FullFran/familiard familiard`.
+
+The binaries are not signed yet. Windows may warn before running them, and macOS needs
+`xattr -d com.apple.quarantine familiard` first.
 
 **Let your AI agent do it.** Tell Claude Code, Codex or any agent that reads skills:
 
