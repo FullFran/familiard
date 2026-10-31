@@ -250,7 +250,7 @@ mod tests {
         let scratch = Scratch::new();
         let error = scratch.gallery().add(&scratch.pack("ana"), Some("../evil")).unwrap_err();
         assert_eq!(error, GalleryError::InvalidId("../evil".into()));
-        assert_eq!(scratch.gallery().folder("../source-iria").unwrap_err(), GalleryError::NotThere("../source-iria".into()));
+        assert_eq!(scratch.gallery().folder("../source-ana").unwrap_err(), GalleryError::NotThere("../source-ana".into()));
     }
 
     #[test]
