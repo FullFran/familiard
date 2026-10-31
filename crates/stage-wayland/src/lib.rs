@@ -2,7 +2,7 @@
 //! Sway, Hyprland...). Pixels go through shared memory, so no GPU or webview is needed.
 #![cfg(target_os = "linux")]
 
-use familiard_application::{paint_bgra, Failure, Player, Stage};
+use familiard_application::{Failure, Player, Stage};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, Region},
     delegate_dispatch2, delegate_registry,
@@ -107,6 +107,9 @@ impl Stage for WaylandStage {
             if let Some(failure) = state.failed.take() {
                 return Err(failure.into());
             }
+            if state.player.leaving() {
+                return Ok(());
+            }
         }
     }
 }
@@ -143,8 +146,9 @@ impl Theatre {
                 return;
             }
         };
+        let offset = self.player.paint(canvas);
+        // Only the sprite takes clicks: the caption lets them through to what is below.
         let sprite = self.player.sprite();
-        let offset = paint_bgra(canvas, (width, height), sprite);
         let region = Region::new(&self.compositor).ok();
         if let Some(region) = &region {
             for y in 0..sprite.height() {

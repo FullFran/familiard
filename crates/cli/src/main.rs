@@ -1,6 +1,7 @@
 //! Composition root: turns the command line into calls to the adapters.
 use familiard_agents::{interpret, LocalFeed, Roster};
 use familiard_application::{summon, ActivityFeed, Failure, PetSource, Stage};
+use familiard_caption::FontCaptioner;
 use familiard_gallery::{home, Gallery};
 use familiard_pack::PetPack;
 use familiard_stage_terminal::TerminalStage;
@@ -13,15 +14,16 @@ use std::time::{Duration, Instant};
 
 const USAGE: &str = "usage:
   familiard                        summon the default pet
-  familiard summon, -s [id] [--at X,Y] [--stage desktop|terminal]
+  familiard summon, -s [id] [--here] [--name TEXT] [--at X,Y] [--stage desktop|terminal]
+                                   --here: follow the next session in this folder, leave when it ends
   familiard dismiss, -d [id] | --all   send pets away (the default one if no id)
   familiard pets, -l [--json]      list the gallery and which pets are open
   familiard add <folder> [--as id] add a pet to the gallery
   familiard remove <id>            remove a pet from the gallery
   familiard default <id>           choose the default pet
-  familiard run --pet <dir> [--stage desktop|terminal] [--rows N] [--frames N] [--at X,Y]
+  familiard run --pet <dir> [--follow DIR] [--name TEXT] [--stage desktop|terminal] [--rows N] [--frames N] [--at X,Y]
                                    run a pet in the foreground, without the gallery
-  familiard hook --agent <name> [--event <event>] [--session <id>]
+  familiard hook --agent <name> [--event <event>] [--session <id>] [--project <dir>]
   familiard --version";
 const MAX_PAYLOAD: u64 = 1 << 20;
 const PAYLOAD_TIMEOUT: Duration = Duration::from_secs(1);
@@ -39,6 +41,8 @@ struct Options {
     rows: u32,
     frames: Option<u32>,
     at: (i32, i32),
+    follow: Option<String>,
+    name: Option<String>,
 }
 
 fn parse_at(text: &str) -> Result<(i32, i32), Failure> {
@@ -48,7 +52,16 @@ fn parse_at(text: &str) -> Result<(i32, i32), Failure> {
 
 fn parse_run(args: Vec<String>) -> Result<Options, Failure> {
     let mut options =
-        Options { pet: String::new(), id: None, stage: "desktop".into(), rows: 24, frames: None, at: (80, 80) };
+        Options {
+            pet: String::new(),
+            id: None,
+            stage: "desktop".into(),
+            rows: 24,
+            frames: None,
+            at: (80, 80),
+            follow: None,
+            name: None,
+        };
     let mut args = args.into_iter();
     while let Some(flag) = args.next() {
         let mut value = || args.next().ok_or_else(|| format!("{flag} needs a value\n{USAGE}"));
@@ -59,6 +72,8 @@ fn parse_run(args: Vec<String>) -> Result<Options, Failure> {
             "--rows" => options.rows = value()?.parse()?,
             "--frames" => options.frames = Some(value()?.parse()?),
             "--at" => options.at = parse_at(&value()?)?,
+            "--follow" => options.follow = Some(canonical(&value()?)),
+            "--name" => options.name = Some(value()?),
             other => return Err(format!("unknown option {other}\n{USAGE}").into()),
         }
     }
@@ -66,6 +81,25 @@ fn parse_run(args: Vec<String>) -> Result<Options, Failure> {
         return Err(format!("--pet is required\n{USAGE}").into());
     }
     Ok(options)
+}
+
+/// The real path, so that a symlink and what it points to count as the same folder. A path
+/// that does not exist here is compared as given.
+fn canonical(folder: &str) -> String {
+    match fs::canonicalize(folder) {
+        Ok(path) => path.to_string_lossy().into_owned(),
+        Err(_) => folder.to_string(),
+    }
+}
+
+/// What the caption says, if anything: the given name, or else the folder's last component.
+fn label(options: &Options) -> Option<String> {
+    let named = options.name.as_deref().map(str::trim).filter(|name| !name.is_empty());
+    let folder_name = || {
+        let folder = options.follow.as_deref()?;
+        Some(Path::new(folder).file_name().map_or(folder.to_string(), |name| name.to_string_lossy().into_owned()))
+    };
+    named.map(String::from).or_else(folder_name)
 }
 
 fn stage(options: &Options) -> Result<Box<dyn Stage>, Failure> {
@@ -100,22 +134,61 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
     if let Err(error) = Box::new(LocalFeed::new(roster.clone(), id.as_str())).listen(outbox) {
         eprintln!("familiard: {error}; this pet will not react to agents");
     }
-    let result = summon(&PetPack::new(&options.pet), stage(&options)?, inbox);
+    let result = summon(&PetPack::new(&options.pet), stage(&options)?, inbox, |mut player| {
+        if let Some(folder) = &options.follow {
+            player = player.following(folder.as_str());
+        }
+        // The font is only read for a pet with something to say, and gone once it has been
+        // used. A pet that cannot write its caption is still a pet.
+        let Some(label) = label(&options) else { return player };
+        match FontCaptioner::new() {
+            Ok(captioner) => {
+                let player = player.captioned(&label, &captioner);
+                drop(captioner);
+                give_back_freed_memory();
+                player
+            }
+            Err(error) => {
+                eprintln!("familiard: {error}; this pet will have no caption");
+                player
+            }
+        }
+    });
     roster.unregister(&id);
     result
 }
+
+/// The font takes several megabytes while it is open, in many small pieces with the captions
+/// allocated after them, so the allocator would keep all of them for good without this.
+#[cfg(all(target_os = "linux", target_env = "gnu"))]
+fn give_back_freed_memory() {
+    extern "C" {
+        fn malloc_trim(pad: usize) -> std::ffi::c_int;
+    }
+    // SAFETY: takes no pointers, and glibc, which this target always links, defines it.
+    unsafe {
+        malloc_trim(0);
+    }
+}
+
+#[cfg(not(all(target_os = "linux", target_env = "gnu")))]
+fn give_back_freed_memory() {}
 
 /// Starts a pet as its own process, and waits until it is really there.
 fn summon_pet(args: Vec<String>) -> Result<(), Failure> {
     let mut id = None;
     let mut at = None;
     let mut stage = "desktop".to_string();
+    let mut here = false;
+    let mut name = None;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
         let mut value = || args.next().ok_or_else(|| format!("{arg} needs a value\n{USAGE}"));
         match arg.as_str() {
             "--at" => at = Some(parse_at(&value()?)?),
             "--stage" => stage = value()?,
+            "--here" => here = true,
+            "--name" => name = Some(value()?),
             other if !other.starts_with('-') && id.is_none() => id = Some(other.to_string()),
             other => return Err(format!("unknown option {other}\n{USAGE}").into()),
         }
@@ -141,7 +214,14 @@ fn summon_pet(args: Vec<String>) -> Result<(), Failure> {
     let mut command = Command::new(std::env::current_exe()?);
     command
         .args(["run", "--id", &id, "--stage", &stage, "--at", &format!("{x},{y}"), "--pet"])
-        .arg(&folder)
+        .arg(&folder);
+    if here {
+        command.arg("--follow").arg(fs::canonicalize(std::env::current_dir()?)?);
+    }
+    if let Some(name) = &name {
+        command.args(["--name", name]);
+    }
+    command
         .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(File::create(&log_path)?);
@@ -290,7 +370,12 @@ fn hook(args: Vec<String>) {
     let Some(agent) = flag("--agent") else { return };
     let event = flag("--event").map(String::as_str);
     let payload = if event.is_none() { read_payload() } else { String::new() };
-    if let Some(report) = interpret(agent, event, flag("--session").map(String::as_str), &payload) {
+    let guess = flag("--project").cloned().or_else(|| {
+        std::env::current_dir().ok().map(|folder| folder.to_string_lossy().into_owned())
+    });
+    let session = flag("--session").map(String::as_str);
+    if let Some(mut report) = interpret(agent, event, session, guess.as_deref(), &payload) {
+        report.folder = report.folder.as_deref().map(canonical);
         roster().broadcast(&report);
     }
 }

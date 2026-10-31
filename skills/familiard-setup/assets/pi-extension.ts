@@ -8,7 +8,7 @@ export default function (pi: any) {
   const send = (state: string, ctx: any) => {
     try {
       const session = ctx?.sessionManager?.getSessionFile?.() || ctx?.cwd || process.cwd()
-      const child = spawn(FAMILIARD_BIN, ["hook", "--agent", "pi", "--event", state, "--session", session], {
+      const child = spawn(FAMILIARD_BIN, ["hook", "--agent", "pi", "--event", state, "--session", session, "--project", ctx?.cwd || process.cwd()], {
         stdio: "ignore",
         detached: true,
       })

@@ -1,0 +1,10 @@
+[package]
+name = "familiard-caption"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+familiard-application = { path = "../application" }
+familiard-domain = { path = "../domain" }
+fontdue = "0.9"

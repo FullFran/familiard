@@ -13,14 +13,44 @@ familiard summon mine
 | --- | --- |
 | `familiard add <folder> [--as id]` | Copies the pet in. The first one becomes the default |
 | `familiard pets [--json]`, `-l` | Lists the gallery: `*` marks the default, `(open)` what is out |
-| `familiard summon [id] [--at X,Y]`, `-s` | Brings out a pet, the default if none is named |
+| `familiard summon [id] [--here] [--name TEXT] [--at X,Y]`, `-s` | Brings out a pet, the default if none is named |
 | `familiard dismiss [id]`, `--all`, `-d` | Sends pets away |
 | `familiard default <id>` | Chooses the default |
 | `familiard remove <id>` | Deletes a pet from the gallery, and sends it away if it is out |
 
-Each open pet is its own small process, and they all react to your agents. The gallery lives
+Each open pet is its own small process, and each reacts to your agents as described in
+[A pet for one session](#a-pet-for-one-session). The gallery lives
 in `~/.local/share/familiard` (`%APPDATA%\\familiard` on Windows,
 `~/Library/Application Support/familiard` on macOS), or wherever `FAMILIARD_HOME` points.
+
+## A pet for one session
+
+| You run | The pet |
+| --- | --- |
+| `familiard summon mochi` | Follows every session, never leaves by itself, and has no caption |
+| `familiard summon mochi --here` | Follows only the next session in this folder, and leaves when it ends |
+| `familiard summon mochi --name "Bug del login"` | Follows every session, with that caption |
+| `familiard summon mochi --here --name "Bug del login"` | Both |
+
+With `--here`, the pet stays idle until a session reports from this folder or one below it. That
+session claims the pet, and from then on no other session counts. A session that goes quiet keeps
+its pet; only its end sends the pet away, and `familiard dismiss` always works.
+
+A pet can only be out once, so `summon` on a pet that is already out changes nothing about it.
+
+The caption sits above the pet's head and says what the session is doing. Its text is the name
+you gave, or else the last part of the folder:
+
+| The session | The caption |
+| --- | --- |
+| Is idle, or has not started | `Bug del login` |
+| Works | `Bug del login · working` |
+| Needs you | `Bug del login · needs you` |
+| Finished | `Bug del login · done` |
+
+A long name is cut with an ellipsis so that the caption stays about 240 pixels wide. Clicks pass
+through the caption on Wayland; on Windows it can be used to drag the pet. A terminal prints the
+same text on its own line. Characters the font lacks show as a box.
 
 ## Use your ChatGPT pet
 

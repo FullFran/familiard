@@ -13,6 +13,11 @@ every open pet over a loopback socket:
 
 With several sessions, working wins over waiting, and waiting over finished.
 
+A pet summoned with `--here` hears one session instead of all of them: the next one to report
+from that folder or below it. See [docs/pets.md](pets.md#a-pet-for-one-session). It leaves when
+that session reports `ended`, so it needs an agent that reports it: Claude Code, Gemini CLI, Pi
+and OpenCode do. With Codex and Antigravity, send it away with `familiard dismiss`.
+
 `familiard` must be on the `PATH` of the agent, or use its full path. Merge these entries
 into your config rather than replacing the file.
 
@@ -77,6 +82,11 @@ Any script can report. Signals are `registered`, `working`, `waiting`, `done` an
 familiard hook --agent build --session nightly --event working
 familiard hook --agent build --session nightly --event done
 ```
+
+The folder a session runs in is what `--here` matches. It comes from the agent's JSON (`cwd`,
+`projectRoot`, or the first of `workspace_roots` or `workspacePaths`), else from
+`--project <dir>`, else from the directory the hook runs in. Symlinks are resolved when the folder
+exists.
 
 ## What the hook guarantees
 

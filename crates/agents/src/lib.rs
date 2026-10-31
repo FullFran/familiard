@@ -14,7 +14,8 @@ use std::path::PathBuf;
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
-const MAX_LINE: u64 = 4096;
+/// Room for a session id and a folder, each as long as a path can get.
+const MAX_LINE: u64 = 16 * 1024;
 const TIMEOUT: Duration = Duration::from_millis(200);
 const DISMISS: &str = "dismiss";
 
@@ -49,8 +50,15 @@ pub fn signal_for(agent: &str, event: &str) -> Option<Signal> {
     }
 }
 
-/// Builds a report from a hook's flags and the JSON on its stdin. Flags win.
-pub fn interpret(agent: &str, event: Option<&str>, session: Option<&str>, payload: &str) -> Option<Report> {
+/// Builds a report from a hook's flags and the JSON on its stdin. Flags win, except for the
+/// folder: what the agent says about itself beats `folder`, the hook's own guess.
+pub fn interpret(
+    agent: &str,
+    event: Option<&str>,
+    session: Option<&str>,
+    folder: Option<&str>,
+    payload: &str,
+) -> Option<Report> {
     let json: Value = serde_json::from_str(payload).unwrap_or(Value::Null);
     let first = |keys: &[&str]| {
         keys.iter().find_map(|key| json.get(key)?.as_str().filter(|text| !text.is_empty()).map(String::from))
@@ -66,7 +74,15 @@ pub fn interpret(agent: &str, event: Option<&str>, session: Option<&str>, payloa
         .or_else(|| first(&["session_id", "conversation_id", "trajectory_id", "sessionId", "conversationId"]))
         .or_else(|| first(&["cwd", "projectRoot"]))
         .unwrap_or_else(|| "default".into());
-    Some(Report { session: format!("{agent}:{session}"), signal })
+    let first_of_list = |keys: &[&str]| {
+        keys.iter().find_map(|key| {
+            json.get(key)?.as_array()?.first()?.as_str().filter(|text| !text.is_empty()).map(String::from)
+        })
+    };
+    let folder = first(&["cwd", "projectRoot"])
+        .or_else(|| first_of_list(&["workspace_roots", "workspacePaths"]))
+        .or_else(|| folder.filter(|text| !text.is_empty()).map(String::from));
+    Some(Report { session: format!("{agent}:{session}"), signal, folder })
 }
 
 /// Antigravity sends no event name, so the fields present say what happened.
@@ -84,6 +100,9 @@ fn antigravity_event(json: &Value) -> Option<String> {
 struct Line {
     session: String,
     signal: String,
+    /// Absent in lines from older hooks, and when the session's folder is unknown.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    folder: Option<String>,
 }
 
 fn name_of(signal: Signal) -> &'static str {
@@ -98,7 +117,7 @@ fn name_of(signal: Signal) -> &'static str {
 
 fn decode(line: &str) -> Option<Report> {
     let line: Line = serde_json::from_str(line).ok()?;
-    Some(Report { signal: signal_for("", &line.signal)?, session: line.session })
+    Some(Report { signal: signal_for("", &line.signal)?, session: line.session, folder: line.folder })
 }
 
 fn connect(port: u16) -> std::io::Result<TcpStream> {
@@ -158,7 +177,11 @@ impl Roster {
 
     /// Tells every open pet. Fails quickly, so an agent never waits.
     pub fn broadcast(&self, report: &Report) {
-        let line = Line { session: report.session.clone(), signal: name_of(report.signal).into() };
+        let line = Line {
+            session: report.session.clone(),
+            signal: name_of(report.signal).into(),
+            folder: report.folder.clone(),
+        };
         let Ok(text) = serde_json::to_string(&line) else { return };
         for (id, port) in self.entries() {
             match connect(port) {
@@ -234,7 +257,7 @@ mod tests {
     use std::sync::mpsc::channel;
 
     fn signal(agent: &str, payload: &str) -> Option<Signal> {
-        interpret(agent, None, None, payload).map(|report| report.signal)
+        interpret(agent, None, None, None, payload).map(|report| report.signal)
     }
 
     #[test]
@@ -265,22 +288,58 @@ mod tests {
     #[test]
     fn reads_the_session_from_the_payload_and_keeps_agents_apart() {
         let payload = r#"{"hook_event_name":"Stop","session_id":"abc","cwd":"/x"}"#;
-        let report = interpret("claude", None, None, payload).unwrap();
-        assert_eq!(report, Report { session: "claude:abc".into(), signal: Signal::Done });
+        let report = interpret("claude", None, None, None, payload).unwrap();
+        assert_eq!(report, Report { session: "claude:abc".into(), signal: Signal::Done, folder: Some("/x".into()) });
     }
 
     #[test]
     fn flags_win_over_the_payload() {
         let payload = r#"{"hook_event_name":"Stop","session_id":"abc"}"#;
-        let report = interpret("pi", Some("working"), Some("s1"), payload).unwrap();
-        assert_eq!(report, Report { session: "pi:s1".into(), signal: Signal::Working });
+        let report = interpret("pi", Some("working"), Some("s1"), None, payload).unwrap();
+        assert_eq!(report, Report { session: "pi:s1".into(), signal: Signal::Working, folder: None });
     }
 
     #[test]
     fn falls_back_to_the_folder_and_then_to_a_default_session() {
         let with_cwd = r#"{"hook_event_name":"Stop","cwd":"/x"}"#;
-        assert_eq!(interpret("claude", None, None, with_cwd).unwrap().session, "claude:/x");
-        assert_eq!(interpret("pi", Some("done"), None, "").unwrap().session, "pi:default");
+        assert_eq!(interpret("claude", None, None, None, with_cwd).unwrap().session, "claude:/x");
+        assert_eq!(interpret("pi", Some("done"), None, None, "").unwrap().session, "pi:default");
+    }
+
+    #[test]
+    fn the_folder_comes_from_the_payload_then_from_what_the_hook_guessed() {
+        let folder = |payload: &str, guess| interpret("claude", Some("working"), None, guess, payload).unwrap().folder;
+        let cases = [
+            (r#"{"cwd":"/cwd","projectRoot":"/root","workspace_roots":["/list"]}"#, "/cwd"),
+            (r#"{"projectRoot":"/root","workspace_roots":["/list"]}"#, "/root"),
+            (r#"{"workspace_roots":["/roots","/ignored"],"workspacePaths":["/paths"]}"#, "/roots"),
+            (r#"{"workspacePaths":["/paths"]}"#, "/paths"),
+            (r#"{"cwd":"","workspace_roots":[]}"#, "/guess"),
+            ("not json", "/guess"),
+        ];
+        for (payload, expected) in cases {
+            assert_eq!(folder(payload, Some("/guess")).as_deref(), Some(expected), "{payload}");
+        }
+        assert_eq!(folder("{}", None), None);
+    }
+
+    #[test]
+    fn a_line_from_an_older_hook_still_works_and_a_new_line_carries_the_folder() {
+        let old = decode(r#"{"session":"claude:s","signal":"working"}"#).unwrap();
+        assert_eq!(old, Report { session: "claude:s".into(), signal: Signal::Working, folder: None });
+        let new = decode(r#"{"session":"claude:s","signal":"done","folder":"/x"}"#).unwrap();
+        assert_eq!(new.folder.as_deref(), Some("/x"));
+    }
+
+    #[test]
+    fn a_long_folder_still_arrives() {
+        let roster = roster();
+        let (outbox, inbox) = channel();
+        Box::new(LocalFeed::new(roster.clone(), "p")).listen(outbox).unwrap();
+        let folder = format!("/{}", "x".repeat(4000));
+        let report = Report { session: "s".into(), signal: Signal::Done, folder: Some(folder) };
+        roster.broadcast(&report);
+        assert_eq!(inbox.recv_timeout(Duration::from_secs(2)).unwrap(), report);
     }
 
     #[test]
@@ -313,7 +372,7 @@ mod tests {
         Box::new(LocalFeed::new(roster.clone(), "a")).listen(first_outbox).unwrap();
         Box::new(LocalFeed::new(roster.clone(), "b")).listen(second_outbox).unwrap();
         assert_eq!(roster.open(), ["a", "b"]);
-        let report = Report { session: "claude:a b".into(), signal: Signal::Waiting };
+        let report = Report { session: "claude:a b".into(), signal: Signal::Waiting, folder: Some("/x y/z".into()) };
         roster.broadcast(&report);
         assert_eq!(first.recv_timeout(Duration::from_secs(2)).unwrap(), report);
         assert_eq!(second.recv_timeout(Duration::from_secs(2)).unwrap(), report);
@@ -327,7 +386,7 @@ mod tests {
         assert!(roster.open().is_empty());
         assert!(roster.entries().is_empty());
         roster.register("gone", free).unwrap();
-        roster.broadcast(&Report { session: "s".into(), signal: Signal::Done });
+        roster.broadcast(&Report { session: "s".into(), signal: Signal::Done, folder: None });
         assert!(roster.entries().is_empty());
         assert!(!roster.dismiss("gone"));
     }
@@ -335,7 +394,7 @@ mod tests {
     #[test]
     fn nobody_home_is_not_an_error() {
         let roster = roster();
-        roster.broadcast(&Report { session: "s".into(), signal: Signal::Done });
+        roster.broadcast(&Report { session: "s".into(), signal: Signal::Done, folder: None });
         assert!(roster.open().is_empty());
         assert!(!roster.dismiss("nobody"));
     }
@@ -347,7 +406,7 @@ mod tests {
         Box::new(LocalFeed::new(roster.clone(), "p")).listen(outbox).unwrap();
         let port = roster.entries()[0].1;
         let silent: Vec<_> = (0..20).map(|_| connect(port).unwrap()).collect();
-        let report = Report { session: "s".into(), signal: Signal::Done };
+        let report = Report { session: "s".into(), signal: Signal::Done, folder: None };
         roster.broadcast(&report);
         assert_eq!(inbox.recv_timeout(Duration::from_millis(150)).unwrap(), report);
         drop(silent);
@@ -363,7 +422,7 @@ mod tests {
         let mut noisy = connect(port).unwrap();
         let _ = noisy.write_all(&vec![b'x'; 100_000]);
         drop(noisy);
-        let report = Report { session: "s".into(), signal: Signal::Done };
+        let report = Report { session: "s".into(), signal: Signal::Done, folder: None };
         roster.broadcast(&report);
         assert_eq!(inbox.recv_timeout(Duration::from_secs(3)).unwrap(), report);
         drop(silent);

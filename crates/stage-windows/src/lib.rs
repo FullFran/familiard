@@ -3,7 +3,7 @@
 //! whatever is below without any work here.
 #![cfg(windows)]
 
-use familiard_application::{paint_bgra, Failure, Player, Stage};
+use familiard_application::{Failure, Player, Stage};
 use std::cell::RefCell;
 use std::ptr::{null, null_mut};
 use std::time::{Duration, Instant};
@@ -53,7 +53,7 @@ impl Theatre {
         let length = width as usize * height as usize * 4;
         // SAFETY: `pixels` is the bitmap of `box_size` that lives as long as the process.
         let canvas = unsafe { std::slice::from_raw_parts_mut(self.pixels, length) };
-        paint_bgra(canvas, self.box_size, self.player.sprite());
+        self.player.paint(canvas);
         let size = SIZE { cx: width as i32, cy: height as i32 };
         let origin = POINT { x: 0, y: 0 };
         let blend = BLENDFUNCTION {
@@ -81,7 +81,15 @@ impl Theatre {
         let now = Instant::now();
         let elapsed = now - self.last;
         self.last = now;
-        if self.player.tick(elapsed).is_some() {
+        let changed = self.player.tick(elapsed).is_some();
+        if self.player.leaving() {
+            // SAFETY: ends the message loop of this thread, which ends the stage.
+            unsafe {
+                PostQuitMessage(0);
+            }
+            return;
+        }
+        if changed {
             self.present(window);
         }
         self.schedule(window);

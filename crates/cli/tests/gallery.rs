@@ -20,6 +20,37 @@ impl Home {
         Command::new(env!("CARGO_BIN_EXE_familiard")).args(args).env("FAMILIARD_HOME", &self.0).output().unwrap()
     }
 
+    fn run_in(&self, folder: &Path, args: &[&str]) -> Output {
+        let mut command = Command::new(env!("CARGO_BIN_EXE_familiard"));
+        command.args(args).current_dir(folder).env("FAMILIARD_HOME", &self.0);
+        command.output().unwrap()
+    }
+
+    /// A folder inside this home, which is removed with it.
+    fn folder(&self, name: &str) -> PathBuf {
+        let folder = self.0.join(name);
+        std::fs::create_dir_all(&folder).unwrap();
+        folder
+    }
+
+    fn summon_here(&self, folder: &Path) -> String {
+        let output = self.run_in(folder, &["summon", "--here", "--stage", "terminal"]);
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        String::from_utf8(output.stdout).unwrap()
+    }
+
+    /// Reports from a folder, as an agent's hook would, and gives the pet time to hear it.
+    fn report(&self, folder: &Path, session: &str, event: &str) {
+        let args = ["hook", "--agent", "test", "--session", session, "--event", event];
+        let output = self.run_in(folder, &args);
+        assert!(output.status.success() && output.stdout.is_empty() && output.stderr.is_empty());
+        std::thread::sleep(Duration::from_millis(600));
+    }
+
+    fn is_open(&self, id: &str) -> bool {
+        self.ok(&["pets"]).lines().any(|line| line.contains(id) && line.contains("(open)"))
+    }
+
     fn ok(&self, args: &[&str]) -> String {
         let output = self.run(args);
         assert!(output.status.success(), "{args:?}: {}", String::from_utf8_lossy(&output.stderr));
@@ -132,4 +163,162 @@ fn a_stage_that_cannot_open_is_reported_by_summon() {
     let error = home.fails(&["summon", "--stage", "hologram"]);
     assert!(error.contains("could not appear") && error.contains("unknown stage"), "{error}");
     assert!(home.ok(&["pets"]).ends_with("Demo\n"));
+}
+
+#[test]
+fn a_pet_summoned_here_ignores_other_folders_and_leaves_when_its_session_ends() {
+    let home = Home::new();
+    home.ok(&["add", &demo()]);
+    let (work, elsewhere) = (home.folder("work"), home.folder("elsewhere"));
+    assert_eq!(home.summon_here(&work), "demo is here\n");
+    assert_eq!(home.ok(&["pets"]), "* demo  Demo  (open)\n");
+
+    home.report(&elsewhere, "other", "working");
+    home.report(&elsewhere, "other", "ended");
+    assert!(home.is_open("demo"), "another folder has no effect");
+
+    home.report(&work, "mine", "working");
+    home.report(&work, "second", "working");
+    home.report(&work, "second", "ended");
+    assert!(home.is_open("demo"), "another session in the same folder has no effect once claimed");
+
+    home.report(&work, "mine", "done");
+    assert!(home.is_open("demo"), "finishing a turn is not leaving");
+
+    home.report(&work, "mine", "ended");
+    home.wait_until_closed("demo");
+    assert_eq!(home.ok(&["pets"]), "* demo  Demo\n");
+    assert!(!home.0.join("running/demo").exists(), "the roster entry is gone");
+    let log = std::fs::read_to_string(home.0.join("logs/demo.log")).unwrap();
+    assert_eq!(log, "", "it left cleanly");
+}
+
+#[test]
+fn a_session_in_a_subfolder_claims_the_pet_but_one_in_a_lookalike_folder_does_not() {
+    let home = Home::new();
+    home.ok(&["add", &demo()]);
+    let (work, lookalike) = (home.folder("work"), home.folder("workshop"));
+    let inside = home.folder("work/deep/down");
+    home.summon_here(&work);
+    home.report(&lookalike, "other", "working");
+    home.report(&lookalike, "other", "ended");
+    assert!(home.is_open("demo"));
+    home.report(&inside, "mine", "working");
+    home.report(&inside, "mine", "ended");
+    home.wait_until_closed("demo");
+}
+
+#[cfg(unix)]
+#[test]
+fn a_pet_summoned_through_a_symlink_hears_the_real_folder() {
+    let home = Home::new();
+    home.ok(&["add", &demo()]);
+    let real = home.folder("real");
+    let link = home.0.join("link");
+    std::os::unix::fs::symlink(&real, &link).unwrap();
+    home.summon_here(&link);
+    home.report(&real, "mine", "working");
+    home.report(&link, "mine", "ended");
+    home.wait_until_closed("demo");
+}
+
+#[test]
+fn dismiss_still_sends_away_a_pet_summoned_here() {
+    let home = Home::new();
+    home.ok(&["add", &demo()]);
+    home.summon_here(&home.folder("work"));
+    assert_eq!(home.ok(&["dismiss"]), "demo has left\n");
+    home.wait_until_closed("demo");
+}
+
+#[test]
+fn a_global_pet_stays_through_every_report_including_ended() {
+    let home = Home::new();
+    home.ok(&["add", &demo()]);
+    let work = home.folder("work");
+    assert_eq!(home.ok(&["summon", "--stage", "terminal", "--name", "All of it"]), "demo is here\n");
+    home.report(&work, "any", "working");
+    home.report(&work, "any", "ended");
+    assert!(home.is_open("demo"));
+    assert_eq!(home.ok(&["pets"]), "* demo  Demo  (open)\n");
+}
+
+/// The first frame in the foreground, split into its text lines.
+fn first_frame(home: &Home, folder: &Path, extra: &[&str]) -> Vec<String> {
+    let demo = demo();
+    let mut args = vec!["run", "--pet", demo.as_str(), "--stage", "terminal", "--rows", "2", "--frames", "1"];
+    args.extend_from_slice(extra);
+    let output = home.run_in(folder, &args);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    String::from_utf8(output.stdout).unwrap().lines().map(String::from).collect()
+}
+
+#[test]
+fn the_terminal_prints_the_caption_on_its_own_line_only_when_there_is_a_label() {
+    let home = Home::new();
+    let work = home.folder("my-work");
+    let plain = first_frame(&home, &work, &[]);
+    assert_eq!(plain.len(), 2, "without a label, only the art");
+
+    let named = first_frame(&home, &work, &["--name", "Bug del login"]);
+    assert_eq!(named[0], "\x1b[2KBug del login");
+    assert_eq!(named[1..], plain[..]);
+
+    let folder = work.to_str().unwrap();
+    let followed = first_frame(&home, &work, &["--follow", folder]);
+    assert_eq!(followed[0], "\x1b[2Kmy-work", "the last component, never the whole path");
+
+    let both = first_frame(&home, &work, &["--follow", folder, "--name", "Mine"]);
+    assert_eq!(both[0], "\x1b[2KMine");
+}
+
+#[test]
+fn a_running_pet_shows_its_state_in_the_caption_and_exits_by_itself() {
+    use std::process::Stdio;
+    let home = Home::new();
+    let work = home.folder("work");
+    let demo = demo();
+    let follow = std::fs::canonicalize(&work).unwrap();
+    let mut pet = Command::new(env!("CARGO_BIN_EXE_familiard"))
+        .args(["run", "--id", "fg", "--stage", "terminal", "--rows", "1", "--pet", &demo, "--follow"])
+        .arg(&follow)
+        .env("FAMILIARD_HOME", &home.0)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let started = Instant::now();
+    while !home.0.join("running/fg").exists() {
+        assert!(started.elapsed() < Duration::from_secs(5), "the pet never listened");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    home.report(&work, "mine", "working");
+    home.report(&work, "mine", "waiting");
+    home.report(&work, "mine", "done");
+    home.report(&work, "mine", "ended");
+    let started = Instant::now();
+    let status = loop {
+        if let Some(status) = pet.try_wait().unwrap() {
+            break status;
+        }
+        assert!(started.elapsed() < Duration::from_secs(5), "the pet did not leave");
+        std::thread::sleep(Duration::from_millis(20));
+    };
+    assert_eq!(status.code(), Some(0));
+    let output = pet.wait_with_output().unwrap();
+    assert_eq!(String::from_utf8_lossy(&output.stderr), "");
+    let text = String::from_utf8_lossy(&output.stdout);
+    for caption in ["work\n", "work \u{b7} working\n", "work \u{b7} needs you\n", "work \u{b7} done\n"] {
+        assert!(text.contains(caption), "{caption:?} in {text:?}");
+    }
+    assert!(!home.0.join("running/fg").exists());
+}
+
+#[test]
+fn summon_rejects_options_it_does_not_know_and_a_name_without_a_value() {
+    let home = Home::new();
+    home.ok(&["add", &demo()]);
+    assert!(home.fails(&["summon", "--follow", "/x"]).contains("unknown option --follow"));
+    assert!(home.fails(&["summon", "--name"]).contains("--name needs a value"));
+    assert_eq!(home.ok(&["pets"]), "* demo  Demo\n");
 }

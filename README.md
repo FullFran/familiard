@@ -41,13 +41,15 @@ It reaches about 50 MB for a moment while it decodes the sheet at start.
 ## Your gallery
 
 Keep as many pets as you like, choose a default, and bring out whichever you want, from a
-terminal or from a coding agent. Every open pet reacts to your agents.
+terminal or from a coding agent. A pet follows every session, or only the one you bind it to.
 
 ```sh
 familiard add path/to/folder     # add a pet (--as name to rename it)
 familiard pets                   # what you have and what is open (-l; --json for scripts)
 familiard summon                 # the default pet (-s)
 familiard summon mochi           # any other, as many at once as you like
+familiard summon mochi --here    # follows only the next session in this folder, then leaves
+familiard summon mochi --name "Bug del login"   # with a caption over its head
 familiard default mochi          # choose the default
 familiard dismiss mochi          # send it away (-d; --all for everyone)
 familiard remove mochi          # delete it from the gallery
@@ -85,6 +87,11 @@ Point your agent's hooks at `familiard hook --agent <name>`:
 The hook is silent, always exits 0, and only reaches this machine, and every open pet hears it. Every agent's setup is in
 [docs/agents.md](docs/agents.md).
 
+Want a pet for one piece of work rather than for everything? Run `familiard summon mochi --here`
+in its folder. The next session that reports from there claims the pet, its caption says
+`folder · working`, `folder · needs you` or `folder · done`, and the pet leaves when that session
+ends.
+
 ## Architecture
 
 Hexagonal: the domain depends on nothing, and displays, pet formats and activity sources are
@@ -93,4 +100,5 @@ adapters. A new place to show the pet is one crate. See [docs/architecture.md](d
 ## License
 
 MIT. Pets you load keep their own licenses. The agent event tables are ported from
-[AgentPet](https://github.com/ntd4996/agentpet) (MIT).
+[AgentPet](https://github.com/ntd4996/agentpet) (MIT). Captions use Noto Sans, embedded in the
+binary under the [SIL Open Font License](crates/caption/fonts/OFL.txt).

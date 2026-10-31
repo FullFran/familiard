@@ -23,22 +23,33 @@ impl TerminalStage {
 impl Stage for TerminalStage {
     fn perform(self: Box<Self>, mut player: Player) -> Result<(), Failure> {
         let mut out = std::io::stdout();
-        let bounds = player.bounds();
-        let mut art = render(player.sprite(), bounds, self.rows);
-        write!(out, "{art}")?;
+        // The caption is a line of text here, so only the frames need room.
+        let bounds = player.pet_bounds();
+        let lines = self.rows + u32::from(player.caption_text().is_some());
+        write!(out, "{}", scene(player.caption_text(), player.sprite(), bounds, self.rows))?;
         out.flush()?;
         let mut drawn = 1;
-        while self.frames.is_none_or(|limit| drawn < limit) {
+        while self.frames.is_none_or(|limit| drawn < limit) && !player.leaving() {
             let wait: Duration = player.next_frame_in();
             std::thread::sleep(wait);
-            if let Some(sprite) = player.tick(wait) {
-                art = render(sprite, bounds, self.rows);
-                write!(out, "\x1b[{}A{art}", self.rows)?;
+            let changed = player.tick(wait).is_some();
+            if changed && !player.leaving() {
+                let art = scene(player.caption_text(), player.sprite(), bounds, self.rows);
+                write!(out, "\x1b[{lines}A{art}")?;
                 out.flush()?;
                 drawn += 1;
             }
         }
         Ok(())
+    }
+}
+
+/// The caption on its own line, wiping what a longer one left behind, then the sprite.
+fn scene(caption: Option<&str>, sprite: &Sprite, bounds: (u32, u32), rows: u32) -> String {
+    let art = render(sprite, bounds, rows);
+    match caption {
+        Some(caption) => format!("\x1b[2K{caption}\n{art}"),
+        None => art,
     }
 }
 
@@ -89,6 +100,14 @@ pub fn render(sprite: &Sprite, bounds: (u32, u32), rows: u32) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_caption_gets_its_own_line_above_the_art() {
+        let sprite = Sprite::new(1, 2, vec![9, 9, 9, 255, 9, 9, 9, 255]).unwrap();
+        let art = render(&sprite, (1, 2), 1);
+        assert_eq!(scene(Some("Bug \u{b7} working"), &sprite, (1, 2), 1), format!("\x1b[2KBug \u{b7} working\n{art}"));
+        assert_eq!(scene(None, &sprite, (1, 2), 1), art);
+    }
 
     #[test]
     fn draws_half_blocks_and_leaves_transparency_blank() {
