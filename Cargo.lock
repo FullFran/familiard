@@ -129,6 +129,7 @@ dependencies = [
  "familiard-pack",
  "familiard-stage-terminal",
  "familiard-stage-wayland",
+ "familiard-stage-windows",
  "serde_json",
  "windows-sys 0.59.0",
 ]
@@ -186,9 +187,16 @@ name = "familiard-stage-wayland"
 version = "0.1.0"
 dependencies = [
  "familiard-application",
- "familiard-domain",
  "smithay-client-toolkit",
  "wayland-client",
+]
+
+[[package]]
+name = "familiard-stage-windows"
+version = "0.1.0"
+dependencies = [
+ "familiard-application",
+ "windows-sys 0.59.0",
 ]
 
 [[package]]

@@ -17,4 +17,5 @@ familiard-stage-terminal = { path = "../stage-terminal" }
 familiard-stage-wayland = { path = "../stage-wayland" }
 
 [target.'cfg(windows)'.dependencies]
+familiard-stage-windows = { path = "../stage-windows" }
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Console"] }

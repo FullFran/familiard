@@ -7,6 +7,7 @@ library. To add something, you normally write one new crate and touch one line i
 cli (composition root: picks the adapters)
  ├─ pack             PetSource: reads pet folders
  ├─ stage-wayland    Stage: floating surface on Wayland
+ ├─ stage-windows    Stage: layered window on Windows
  ├─ stage-terminal   Stage: half blocks in a terminal
  ├─ gallery          the pets the user keeps, and the default one
  ├─ agents           ActivityFeed and Roster: every open pet hears hooks over loopback
@@ -52,8 +53,9 @@ impl Stage for MyStage {
 ```
 
 `crates/stage-terminal` is the smallest example. Draw frames bottom-centered in the box, so
-that a pet of varying width does not jump around. On desktops, use `Sprite::solid_spans` to
-let clicks through transparent areas.
+that a pet of varying width does not jump around (`paint_bgra` does this for desktops). Let
+clicks through transparent areas: Windows does it by itself, and on Wayland `Sprite::solid_spans`
+gives the region to use.
 
 Stages that exist only on one system use `#[cfg(target_os = "...")]`, as `stage-wayland` does.
 

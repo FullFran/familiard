@@ -81,7 +81,12 @@ fn desktop_stage(options: &Options) -> Result<Box<dyn Stage>, Failure> {
     Ok(Box::new(familiard_stage_wayland::WaylandStage::new(options.at)))
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(windows)]
+fn desktop_stage(options: &Options) -> Result<Box<dyn Stage>, Failure> {
+    Ok(Box::new(familiard_stage_windows::WindowsStage::new(options.at)))
+}
+
+#[cfg(not(any(target_os = "linux", windows)))]
 fn desktop_stage(_options: &Options) -> Result<Box<dyn Stage>, Failure> {
     Err("the desktop stage is not available on this platform yet; use --stage terminal".into())
 }

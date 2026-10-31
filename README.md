@@ -31,7 +31,8 @@ It asks before touching any config and backs each one up first.
 | Stage | Platforms | State |
 | --- | --- | --- |
 | `desktop` | Linux on Wayland with wlr-layer-shell: COSMIC, KDE, Sway, Hyprland | Works on COSMIC, the rest untested |
-| `desktop` | GNOME, X11, Windows, macOS | Not written yet |
+| `desktop` | Windows 10 and 11 | New: checked by CI on a real desktop, not yet by hand |
+| `desktop` | GNOME, X11, macOS | Not written yet |
 | `terminal` | Any truecolor terminal | Works on Linux; built for Windows and macOS by CI |
 
 On COSMIC, a pet of about 80 frames at 120x180 measured 6 MB of memory (PSS) and 0.1% CPU while idle.

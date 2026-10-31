@@ -28,7 +28,8 @@ Use when the user wants familiard installed, a pet loaded or changed, or their c
 | System | Stage |
 |--------|-------|
 | Linux, Wayland, compositor with wlr-layer-shell (COSMIC, KDE, Sway, Hyprland) | `desktop` (default) |
-| GNOME, X11, Windows, macOS | `--stage terminal` only, for now; say so plainly |
+| Windows 10 or 11 | `desktop` (default); the binary is `familiard.exe` |
+| GNOME, X11, macOS | `--stage terminal` only, for now; say so plainly |
 
 | Pet source | Action |
 |------------|--------|

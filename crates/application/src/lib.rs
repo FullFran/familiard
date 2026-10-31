@@ -66,6 +66,24 @@ impl Player {
     }
 }
 
+/// Paints a sprite bottom-centered as premultiplied BGRA, the format desktop compositors
+/// want, clearing everything else. Returns where the sprite landed inside the box.
+pub fn paint_bgra(canvas: &mut [u8], box_size: (u32, u32), sprite: &Sprite) -> (u32, u32) {
+    canvas.fill(0);
+    let (width, height) = box_size;
+    let left = width.saturating_sub(sprite.width()) / 2;
+    let top = height.saturating_sub(sprite.height());
+    for (y, row) in sprite.rgba().chunks_exact(sprite.width() as usize * 4).enumerate() {
+        let start = ((top as usize + y) * width as usize + left as usize) * 4;
+        for (pixel, out) in row.chunks_exact(4).zip(canvas[start..].chunks_exact_mut(4)) {
+            let alpha = pixel[3] as u32;
+            let scale = |channel: u8| ((channel as u32 * alpha + 127) / 255) as u8;
+            out.copy_from_slice(&[scale(pixel[2]), scale(pixel[1]), scale(pixel[0]), pixel[3]]);
+        }
+    }
+    (left, top)
+}
+
 /// The main use case: bring a pet to a stage.
 pub fn summon(source: &dyn PetSource, stage: Box<dyn Stage>, inbox: Receiver<Report>) -> Result<(), Failure> {
     stage.perform(Player::new(source.load()?, inbox))
@@ -137,6 +155,16 @@ mod tests {
         drop(outbox);
         let mut player = FixedPet.load().map(|pet| Player::new(pet, inbox)).unwrap();
         assert!(player.tick(Duration::ZERO).is_none());
+    }
+
+    #[test]
+    fn paints_premultiplied_bgra_at_the_bottom_center() {
+        let sprite = Sprite::new(1, 1, vec![200, 100, 50, 128]).unwrap();
+        let mut canvas = vec![7u8; 3 * 2 * 4];
+        assert_eq!(paint_bgra(&mut canvas, (3, 2), &sprite), (1, 1));
+        let at = (3 + 1) * 4;
+        assert_eq!(&canvas[at..at + 4], &[25, 50, 100, 128]);
+        assert!(canvas[..at].iter().all(|byte| *byte == 0));
     }
 
     #[test]

@@ -20,3 +20,19 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --workspace
       - run: cargo run --release -- run --pet pets/demo --stage terminal --rows 6 --frames 2
+
+  windows-desktop:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release -p familiard
+      - run: .github/scripts/windows-smoke.ps1
+        shell: pwsh
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: windows-smoke
+          path: windows-smoke.png
+          if-no-files-found: ignore

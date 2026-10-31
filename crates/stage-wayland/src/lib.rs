@@ -2,8 +2,7 @@
 //! Sway, Hyprland...). Pixels go through shared memory, so no GPU or webview is needed.
 #![cfg(target_os = "linux")]
 
-use familiard_application::{Failure, Player, Stage};
-use familiard_domain::Sprite;
+use familiard_application::{paint_bgra, Failure, Player, Stage};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, Region},
     delegate_dispatch2, delegate_registry,
@@ -145,7 +144,7 @@ impl Theatre {
             }
         };
         let sprite = self.player.sprite();
-        let offset = paint(canvas, (width, height), sprite);
+        let offset = paint_bgra(canvas, (width, height), sprite);
         let region = Region::new(&self.compositor).ok();
         if let Some(region) = &region {
             for y in 0..sprite.height() {
@@ -266,24 +265,6 @@ fn place(
         }
         None => (current, here.clamp(wanted, box_size)),
     }
-}
-
-/// Clears the canvas and paints the sprite bottom-centered as premultiplied ARGB, the
-/// byte order Wayland expects on little-endian machines. Returns the sprite's offset.
-fn paint(canvas: &mut [u8], box_size: (u32, u32), sprite: &Sprite) -> (u32, u32) {
-    canvas.fill(0);
-    let (width, height) = box_size;
-    let left = width.saturating_sub(sprite.width()) / 2;
-    let top = height.saturating_sub(sprite.height());
-    for (y, row) in sprite.rgba().chunks_exact(sprite.width() as usize * 4).enumerate() {
-        let start = ((top as usize + y) * width as usize + left as usize) * 4;
-        for (pixel, out) in row.chunks_exact(4).zip(canvas[start..].chunks_exact_mut(4)) {
-            let alpha = pixel[3] as u32;
-            let scale = |channel: u8| ((channel as u32 * alpha + 127) / 255) as u8;
-            out.copy_from_slice(&[scale(pixel[2]), scale(pixel[1]), scale(pixel[0]), pixel[3]]);
-        }
-    }
-    (left, top)
 }
 
 impl CompositorHandler for Theatre {
@@ -422,16 +403,5 @@ mod tests {
     #[test]
     fn an_unknown_screen_only_limits_the_top_left() {
         assert_eq!(place((5000, -1), BOX, &[], None), (None, (5000, 0)));
-    }
-
-    #[test]
-    fn paints_premultiplied_bgra_at_the_bottom_center() {
-        let sprite = Sprite::new(1, 1, vec![200, 100, 50, 128]).unwrap();
-        let mut canvas = vec![7u8; 3 * 2 * 4];
-        let offset = paint(&mut canvas, (3, 2), &sprite);
-        assert_eq!(offset, (1, 1));
-        let at = (3 + 1) * 4;
-        assert_eq!(&canvas[at..at + 4], &[25, 50, 100, 128]);
-        assert!(canvas[..at].iter().all(|byte| *byte == 0));
     }
 }
