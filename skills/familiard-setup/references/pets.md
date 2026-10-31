@@ -12,9 +12,9 @@ familiard summon mine
 | Command | What it does |
 | --- | --- |
 | `familiard add <folder> [--as id]` | Copies the pet in. The first one becomes the default |
-| `familiard pets [--json]` | Lists the gallery: `*` marks the default, `(open)` what is out |
-| `familiard summon [id] [--at X,Y]` | Brings out a pet, the default if none is named |
-| `familiard dismiss [id]`, `--all` | Sends pets away |
+| `familiard pets [--json]`, `-l` | Lists the gallery: `*` marks the default, `(open)` what is out |
+| `familiard summon [id] [--at X,Y]`, `-s` | Brings out a pet, the default if none is named |
+| `familiard dismiss [id]`, `--all`, `-d` | Sends pets away |
 | `familiard default <id>` | Chooses the default |
 | `familiard remove <id>` | Deletes a pet from the gallery, and sends it away if it is out |
 

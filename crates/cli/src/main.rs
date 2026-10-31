@@ -13,9 +13,9 @@ use std::time::{Duration, Instant};
 
 const USAGE: &str = "usage:
   familiard                        summon the default pet
-  familiard summon [id] [--at X,Y] [--stage desktop|terminal]
-  familiard dismiss [id] | --all   send pets away (the default one if no id)
-  familiard pets [--json]          list the gallery and which pets are open
+  familiard summon, -s [id] [--at X,Y] [--stage desktop|terminal]
+  familiard dismiss, -d [id] | --all   send pets away (the default one if no id)
+  familiard pets, -l [--json]      list the gallery and which pets are open
   familiard add <folder> [--as id] add a pet to the gallery
   familiard remove <id>            remove a pet from the gallery
   familiard default <id>           choose the default pet
@@ -307,9 +307,9 @@ fn dispatch(mut args: Vec<String>) -> Result<(), Failure> {
             hook(args);
             Ok(())
         }
-        "summon" => summon_pet(args),
-        "dismiss" => dismiss(args),
-        "pets" => pets(args),
+        "summon" | "-s" => summon_pet(args),
+        "dismiss" | "-d" => dismiss(args),
+        "pets" | "-l" => pets(args),
         "add" => add(args),
         "remove" => remove(args),
         "default" => set_default(args),

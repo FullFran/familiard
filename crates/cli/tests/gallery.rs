@@ -72,6 +72,17 @@ fn a_pet_goes_from_a_folder_to_being_summoned_and_dismissed() {
 }
 
 #[test]
+fn the_short_forms_do_the_same() {
+    let home = Home::new();
+    home.ok(&["add", &demo()]);
+    assert_eq!(home.ok(&["-s", "--stage", "terminal"]), "demo is here\n");
+    assert_eq!(home.ok(&["-l"]), "* demo  Demo  (open)\n");
+    assert_eq!(home.ok(&["-d", "demo"]), "demo has left\n");
+    home.wait_until_closed("demo");
+    assert_eq!(home.ok(&["-d", "--all"]), "no pets are open\n");
+}
+
+#[test]
 fn several_pets_can_be_out_and_the_default_can_change() {
     let home = Home::new();
     home.ok(&["add", &demo()]);

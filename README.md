@@ -44,11 +44,11 @@ terminal or from a coding agent. Every open pet reacts to your agents.
 
 ```sh
 familiard add path/to/folder     # add a pet (--as name to rename it)
-familiard pets                   # what you have and what is open (--json for scripts)
-familiard summon                 # the default pet
-familiard summon mochi          # any other, as many at once as you like
-familiard default mochi         # choose the default
-familiard dismiss mochi         # send it away (--all for everyone)
+familiard pets                   # what you have and what is open (-l; --json for scripts)
+familiard summon                 # the default pet (-s)
+familiard summon mochi           # any other, as many at once as you like
+familiard default mochi          # choose the default
+familiard dismiss mochi          # send it away (-d; --all for everyone)
 familiard remove mochi          # delete it from the gallery
 ```
 
