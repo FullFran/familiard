@@ -218,19 +218,19 @@ mod tests {
     fn the_first_pet_becomes_the_default_and_later_ones_do_not() {
         let scratch = Scratch::new();
         let gallery = scratch.gallery();
-        assert!(gallery.add(&scratch.pack("iria"), None).unwrap().is_default);
+        assert!(gallery.add(&scratch.pack("ana"), None).unwrap().is_default);
         assert!(!gallery.add(&scratch.pack("xiao"), None).unwrap().is_default);
-        assert_eq!(gallery.chosen().unwrap(), "iria");
+        assert_eq!(gallery.chosen().unwrap(), "ana");
         let ids: Vec<_> = gallery.list().into_iter().map(|entry| (entry.id, entry.is_default)).collect();
-        assert_eq!(ids, [("iria".to_string(), true), ("xiao".to_string(), false)]);
+        assert_eq!(ids, [("ana".to_string(), true), ("xiao".to_string(), false)]);
     }
 
     #[test]
     fn copies_only_the_pet_files() {
         let scratch = Scratch::new();
         let gallery = scratch.gallery();
-        gallery.add(&scratch.pack("iria"), None).unwrap();
-        let folder = gallery.folder("iria").unwrap();
+        gallery.add(&scratch.pack("ana"), None).unwrap();
+        let folder = gallery.folder("ana").unwrap();
         assert!(folder.join("sheet.png").exists());
         assert!(!folder.join("notes.sh").exists());
     }
@@ -239,7 +239,7 @@ mod tests {
     fn an_explicit_id_wins_and_ids_are_lowercased() {
         let scratch = Scratch::new();
         let gallery = scratch.gallery();
-        assert_eq!(gallery.add(&scratch.pack("iria"), Some("Mine")).unwrap().id, "mine");
+        assert_eq!(gallery.add(&scratch.pack("ana"), Some("Mine")).unwrap().id, "mine");
     }
 
     #[test]
@@ -248,7 +248,7 @@ mod tests {
             assert!(!valid_id(id), "{id}");
         }
         let scratch = Scratch::new();
-        let error = scratch.gallery().add(&scratch.pack("iria"), Some("../evil")).unwrap_err();
+        let error = scratch.gallery().add(&scratch.pack("ana"), Some("../evil")).unwrap_err();
         assert_eq!(error, GalleryError::InvalidId("../evil".into()));
         assert_eq!(scratch.gallery().folder("../source-iria").unwrap_err(), GalleryError::NotThere("../source-iria".into()));
     }
@@ -257,9 +257,9 @@ mod tests {
     fn adding_twice_is_refused_and_a_failed_copy_leaves_nothing() {
         let scratch = Scratch::new();
         let gallery = scratch.gallery();
-        let pack = scratch.pack("iria");
+        let pack = scratch.pack("ana");
         gallery.add(&pack, None).unwrap();
-        assert_eq!(gallery.add(&pack, None).unwrap_err(), GalleryError::AlreadyThere("iria".into()));
+        assert_eq!(gallery.add(&pack, None).unwrap_err(), GalleryError::AlreadyThere("ana".into()));
         let broken = scratch.pack("broken");
         fs::remove_file(broken.join("sheet.png")).unwrap();
         assert!(gallery.add(&broken, None).is_err());
