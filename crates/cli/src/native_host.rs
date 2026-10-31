@@ -161,7 +161,7 @@ fn session_of(conversation: &str) -> String {
 fn summon(pet: &str, conversation: &str, name: &str) -> Result<Value, Failure> {
     let stage = std::env::var(STAGE_VARIABLE).unwrap_or_else(|_| "desktop".into());
     let binding = Binding::Session(session_of(conversation));
-    if bring_out(pet, None, &stage, &binding, Some(name))? {
+    if bring_out(pet, None, &stage, &binding, Some(name), false)? {
         Ok(json!({"ok": true}))
     } else {
         Ok(json!({"ok": false, "already_out": true, "error": format!("{pet} is already out")}))

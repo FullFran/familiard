@@ -20,6 +20,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - run: cargo test --workspace
       - run: cargo run --release -- run --pet pets/demo --stage terminal --rows 6 --frames 2
+      - run: node --test
+        working-directory: extension
 
   windows-desktop:
     runs-on: windows-latest

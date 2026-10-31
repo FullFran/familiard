@@ -41,7 +41,7 @@ its pet; only its end sends the pet away, and `familiard dismiss` always works.
 It is the agent and the session's id as a hook reports them, `<agent>:<session>`, and it cannot be
 combined with `--here`.
 
-A pet can only be out once, so `summon` on a pet that is already out changes nothing about it.
+A pet can only be out once. `summon` on a pet that is already out changes nothing about it, and with `--here`, `--session`, `--name` or `--still` it fails instead, because those could not apply: dismiss it first.
 
 The caption sits above the pet's head and says what the session is doing. Its text is the name
 you gave, or else the last part of the folder:

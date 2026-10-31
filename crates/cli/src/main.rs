@@ -246,10 +246,17 @@ fn summon_pet(args: Vec<String>) -> Result<(), Failure> {
         Some(id) => id,
         None => Gallery::new(&home()).chosen()?,
     };
-    if bring_out(&id, at, &stage, &binding, name.as_deref())? {
+    let plain = matches!(binding, Binding::Everything) && name.is_none() && !still;
+    if bring_out(&id, at, &stage, &binding, name.as_deref(), still)? {
         println!("{id} is here");
-    } else {
+    } else if plain {
         println!("{id} is already here");
+    } else {
+        // Saying nothing would leave someone waiting for a pet that was never bound.
+        return Err(format!(
+            "{id} is already here, so these options cannot apply. Send it away first: familiard dismiss {id}"
+        )
+        .into());
     }
     Ok(())
 }
@@ -262,6 +269,7 @@ fn bring_out(
     stage: &str,
     binding: &Binding,
     name: Option<&str>,
+    still: bool,
 ) -> Result<bool, Failure> {
     let folder = Gallery::new(&home()).folder(id)?;
     let roster = roster();

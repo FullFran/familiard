@@ -103,6 +103,24 @@ fn a_pet_goes_from_a_folder_to_being_summoned_and_dismissed() {
 }
 
 #[test]
+fn options_a_pet_already_out_cannot_honour_fail_instead_of_being_ignored() {
+    let home = Home::new();
+    home.ok(&["add", &demo()]);
+    home.ok(&["summon", "--stage", "terminal"]);
+    for options in [&["--here"][..], &["--session", "claude:s"], &["--name", "X"], &["--still"]] {
+        let mut args = vec!["summon", "demo", "--stage", "terminal"];
+        args.extend_from_slice(options);
+        let error = home.fails(&args);
+        assert!(error.contains("demo is already here"), "{options:?}: {error}");
+        assert!(error.contains("familiard dismiss demo"), "{options:?}: {error}");
+    }
+    assert_eq!(home.ok(&["summon", "demo", "--stage", "terminal"]), "demo is already here\n");
+    assert_eq!(home.ok(&["pets"]), "* demo  Demo  (open)\n");
+    home.ok(&["dismiss"]);
+    home.wait_until_closed("demo");
+}
+
+#[test]
 fn the_short_forms_do_the_same() {
     let home = Home::new();
     home.ok(&["add", &demo()]);

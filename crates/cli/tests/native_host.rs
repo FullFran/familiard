@@ -316,9 +316,14 @@ fn a_signal_reaches_every_pet_as_a_chatgpt_session_with_no_folder() {
         Box::new(LocalFeed::new(Roster::new(home.0.join("running")), "listener")).listen(outbox).unwrap();
         inbox
     };
-    assert_eq!(host.ask(signal_message(CONVERSATION, "working")), json!({"ok": true}));
+    let reply = host.ask(signal_message(CONVERSATION, "working"));
+    let report = inbox.recv_timeout(Duration::from_secs(2));
+    // The listener lives in this process and a feed exits its process on `dismiss`, so if `Home`
+    // could still reach it, cleaning up would end the whole test run with a success status.
+    std::fs::remove_file(home.0.join("running/listener")).unwrap();
+    assert_eq!(reply, json!({"ok": true}));
     let expected = Report { session: format!("chatgpt:{CONVERSATION}"), signal: Signal::Working, folder: None };
-    assert_eq!(inbox.recv_timeout(Duration::from_secs(2)).unwrap(), expected, "no folder, so --here never claims it");
+    assert_eq!(report.unwrap(), expected, "no folder, so --here never claims it");
     drop(host.finish());
 }
 
