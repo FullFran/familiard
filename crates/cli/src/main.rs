@@ -14,14 +14,15 @@ use std::time::{Duration, Instant};
 
 const USAGE: &str = "usage:
   familiard                        summon the default pet
-  familiard summon, -s [id] [--here] [--name TEXT] [--at X,Y] [--stage desktop|terminal]
+  familiard summon, -s [id] [--here] [--still] [--name TEXT] [--at X,Y] [--stage desktop|terminal]
                                    --here: follow the next session in this folder, leave when it ends
+                                   --still: never walk around on its own
   familiard dismiss, -d [id] | --all   send pets away (the default one if no id)
   familiard pets, -l [--json]      list the gallery and which pets are open
   familiard add <folder> [--as id] add a pet to the gallery
   familiard remove <id>            remove a pet from the gallery
   familiard default <id>           choose the default pet
-  familiard run --pet <dir> [--follow DIR] [--name TEXT] [--stage desktop|terminal] [--rows N] [--frames N] [--at X,Y]
+  familiard run --pet <dir> [--follow DIR] [--still] [--name TEXT] [--stage desktop|terminal] [--rows N] [--frames N] [--at X,Y]
                                    run a pet in the foreground, without the gallery
   familiard hook --agent <name> [--event <event>] [--session <id>] [--project <dir>]
   familiard --version";
@@ -43,6 +44,7 @@ struct Options {
     at: (i32, i32),
     follow: Option<String>,
     name: Option<String>,
+    still: bool,
 }
 
 fn parse_at(text: &str) -> Result<(i32, i32), Failure> {
@@ -61,6 +63,7 @@ fn parse_run(args: Vec<String>) -> Result<Options, Failure> {
             at: (80, 80),
             follow: None,
             name: None,
+            still: false,
         };
     let mut args = args.into_iter();
     while let Some(flag) = args.next() {
@@ -74,6 +77,7 @@ fn parse_run(args: Vec<String>) -> Result<Options, Failure> {
             "--at" => options.at = parse_at(&value()?)?,
             "--follow" => options.follow = Some(canonical(&value()?)),
             "--name" => options.name = Some(value()?),
+            "--still" => options.still = true,
             other => return Err(format!("unknown option {other}\n{USAGE}").into()),
         }
     }
@@ -138,6 +142,9 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
         if let Some(folder) = &options.follow {
             player = player.following(folder.as_str());
         }
+        if options.still {
+            player = player.still();
+        }
         // The font is only read for a pet with something to say, and gone once it has been
         // used. A pet that cannot write its caption is still a pet.
         let Some(label) = label(&options) else { return player };
@@ -180,6 +187,7 @@ fn summon_pet(args: Vec<String>) -> Result<(), Failure> {
     let mut at = None;
     let mut stage = "desktop".to_string();
     let mut here = false;
+    let mut still = false;
     let mut name = None;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
@@ -188,6 +196,7 @@ fn summon_pet(args: Vec<String>) -> Result<(), Failure> {
             "--at" => at = Some(parse_at(&value()?)?),
             "--stage" => stage = value()?,
             "--here" => here = true,
+            "--still" => still = true,
             "--name" => name = Some(value()?),
             other if !other.starts_with('-') && id.is_none() => id = Some(other.to_string()),
             other => return Err(format!("unknown option {other}\n{USAGE}").into()),
@@ -217,6 +226,9 @@ fn summon_pet(args: Vec<String>) -> Result<(), Failure> {
         .arg(&folder);
     if here {
         command.arg("--follow").arg(fs::canonicalize(std::env::current_dir()?)?);
+    }
+    if still {
+        command.arg("--still");
     }
     if let Some(name) = &name {
         command.args(["--name", name]);

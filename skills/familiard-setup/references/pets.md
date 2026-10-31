@@ -13,7 +13,7 @@ familiard summon mine
 | --- | --- |
 | `familiard add <folder> [--as id]` | Copies the pet in. The first one becomes the default |
 | `familiard pets [--json]`, `-l` | Lists the gallery: `*` marks the default, `(open)` what is out |
-| `familiard summon [id] [--here] [--name TEXT] [--at X,Y]`, `-s` | Brings out a pet, the default if none is named |
+| `familiard summon [id] [--here] [--still] [--name TEXT] [--at X,Y]`, `-s` | Brings out a pet, the default if none is named |
 | `familiard dismiss [id]`, `--all`, `-d` | Sends pets away |
 | `familiard default <id>` | Chooses the default |
 | `familiard remove <id>` | Deletes a pet from the gallery, and sends it away if it is out |
@@ -52,6 +52,25 @@ A long name is cut with an ellipsis so that the caption stays about 240 pixels w
 through the caption on Wayland; on Windows it can be used to drag the pet. A terminal prints the
 same text on its own line. Characters the font lacks show as a box.
 
+## A pet with a life of its own
+
+While no agent has anything to say, a pet is not just a loop. Whatever an agent reports comes
+first and interrupts all of this at once.
+
+| It | When | Using |
+| --- | --- | --- |
+| Glances around for about 1.5 seconds | Every 6 to 20 seconds, at random | Rows 9 and 10 |
+| Strolls 60 to 200 pixels, turning back at the edge of its screen | Every 1 to 4 minutes, at random | Rows 1 and 2 |
+| Dozes off, with its head down | After 5 minutes with no report and no press | Row 5 |
+| Jumps, startled | When a report or a press wakes it | Row 4 |
+| Looks at the pointer | When the pointer comes over it | Rows 9 and 10 |
+| Waves | When you click it without dragging | Row 3 |
+
+To keep a pet where you put it, add `--still` to `summon` or `run`: it stops strolling and keeps
+everything else. A pet bound with `--here` wakes only for its own session.
+
+In a terminal a pet glances and dozes, but it has nowhere to walk and no pointer to feel.
+
 ## Use your ChatGPT pet
 
 1. Get the spritesheet as a PNG or WebP file.
@@ -72,11 +91,24 @@ same text on its own line. Characters the font lacks show as a box.
 | Created in the desktop app | Stored locally, but OpenAI does not document where, so look in the app or ask it to export the file |
 
 Both sheet sizes work: 1536x1872 (version 1) and 1536x2288 (version 2, which adds rows of
-looking poses that familiard does not use yet).
+looking poses).
 
 Any pack in the Codex pet format works the same way, including community ones. Each pet
 keeps its own license, so check it before sharing one. A pack with no license, or a fan pack of
 someone else's characters, is for your own gallery only.
+
+### Standard sheets stay standard
+
+An unmodified Codex sheet and its unmodified `pet.json` get everything their rows allow. No
+behaviour here needs an extra file, an extra field, a conversion or a row outside the Codex format,
+so a pack that works here works unchanged in every other app that reads the format.
+
+| Sheet | What it does |
+| --- | --- |
+| Version 2, 11 rows | Everything |
+| Version 1, 9 rows | No glances and no head turn at the pointer, because it has no looks. It still strolls, dozes, jumps and waves |
+| Fewer rows | Each behaviour whose row is missing is skipped |
+| Rows shorter than usual | Frames are chosen from each row's own length, so short rows work |
 
 ## Spritesheet layout
 
@@ -85,13 +117,14 @@ Rows, top to bottom:
 | Row | Animation | Plays when |
 | --- | --- | --- |
 | 0 | idle | Nothing is going on |
-| 1, 2 | running right, running left | Not used yet |
-| 3 | waving | An agent finished |
-| 4 | jumping | Just after everything finished, for 3 seconds |
-| 5 | failed | Not used yet |
+| 1, 2 | running right, running left | It strolls |
+| 3 | waving | An agent finished, or you clicked it |
+| 4 | jumping | Just after everything finished, for 3 seconds, or when it wakes up |
+| 5 | failed | It dozes off |
 | 6 | waiting | An agent needs you |
 | 7 | running in place | An agent is working |
 | 8 | review | Not used yet |
+| 9, 10 | looks (version 2 only) | It glances around, or the pointer comes over it |
 
 Frames are found through transparent gaps, not through a grid:
 
@@ -99,7 +132,12 @@ Frames are found through transparent gaps, not through a grid:
 - Rows can have any number of frames. To hold a pose longer, repeat its frame.
 - A pet needs at least the idle row; any other missing animation falls back to idle.
 
-Speed is fixed per animation: idle and waving 3 fps, waiting 4, working and jumping 8.
+Speed is fixed per animation: idle, waving and dozing 3 fps, waiting 4, working, jumping and
+strolling 8. A glance plays up to 4 consecutive frames of one row of looks, whatever the row's length.
+
+A pet dozes by playing row 5 up to its middle frame, and holding that one: frame 4 of 8, frame 2 of
+5, and so on. In a standard failed row, that is when the head is lowest and the eyes are closed. If
+yours rises sooner or later, it will doze in whatever pose its middle frame has.
 
 ## Troubleshooting
 

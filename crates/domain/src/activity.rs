@@ -90,9 +90,11 @@ impl Activity {
         }
     }
 
-    pub fn record(&mut self, report: Report) {
+    /// Returns whether this pet cares about the report: a pet bound to one session does not
+    /// hear the others.
+    pub fn record(&mut self, report: Report) -> bool {
         if !self.cares_about(&report) {
-            return;
+            return false;
         }
         if report.signal == Signal::Ended {
             self.sessions.remove(&report.session);
@@ -101,6 +103,7 @@ impl Activity {
             self.sessions.insert(report.session, Session { signal: report.signal, quiet: Duration::ZERO });
         }
         self.settle();
+        true
     }
 
     pub fn advance(&mut self, elapsed: Duration) {

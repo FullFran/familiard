@@ -13,7 +13,7 @@ cli (composition root: picks the adapters)
  ├─ gallery          the pets the user keeps, and the default one
  ├─ agents           ActivityFeed and Roster: every open pet hears hooks over loopback
  └─ application      the ports, and Player, which runs the pet for a stage
-     └─ domain       Pet, Companion, Activity, Sprite
+     └─ domain       Pet, Companion, Activity, Life, Sprite
 ```
 
 | Concept | Meaning |
@@ -21,6 +21,7 @@ cli (composition root: picks the adapters)
 | `Pet` | A character: a clip per mood |
 | `Companion` | A pet alive: its current mood and frame |
 | `Activity` | Turns what the sessions it cares about report into one mood, and says when the one it follows has ended |
+| `Life` | What a pet does on its own while its mood is idle: glances, strolls, dozes, and reacts to the pointer. Time and chance are passed in |
 | `Player` | What a stage talks to: "what do I draw, and when do I ask again?" |
 
 ## Where things go
@@ -30,7 +31,7 @@ cli (composition root: picks the adapters)
 | A place to show the pet | `Stage` | Windows, macOS, an editor panel, a Pi extension |
 | A way to hear about activity | `ActivityFeed` | CI status, a calendar |
 | A pet format | `PetSource` | A folder of GIFs |
-| A new behaviour or mood | `domain` | Falling asleep |
+| A new behaviour or mood | `domain` | Reacting to the time of day |
 | Another way of writing captions | `Captioner` | A font of the user's choosing |
 
 ## Adding a stage
@@ -51,6 +52,11 @@ impl Stage for MyStage {
                 player.paint(&mut canvas);
                 show(&canvas);
             }
+            if let Some(step) = player.step() {
+                let x = walk_within(position.x, step, width, screen.x_range());
+                player.walked(x - position.x); // less than asked: it turns around
+                move_to(x);
+            }
         }
         Ok(())
     }
@@ -64,6 +70,11 @@ returns where the sprite landed). Let clicks through transparent areas: Windows 
 itself, and on Wayland `Sprite::solid_spans` gives the region to use.
 
 When `Player::leaving` is true the pet's session has ended: end the loop and return `Ok`.
+
+The pet walks by asking: `Player::step` is a request for its stage to move it, and
+`Player::walked` is the answer. Report the pointer with `Player::pointer`, and paint when it
+returns true. A stage that cannot move the pet starts with `Player::still` and never asks, and a
+stage with no pointer just never reports one, as `stage-terminal` does.
 
 Captions cost nothing while running. `Player::captioned` draws every caption the pet can show
 once, reserves the box for the widest, and lets go of the `Captioner`, because an open font takes

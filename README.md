@@ -2,7 +2,8 @@
 
 A very light desktop pet that lives on your screen. It can be dragged between monitors,
 lets clicks through its transparent areas, and reacts to your coding agents: working,
-waiting for you, celebrating when they finish. Early stage.
+waiting for you, celebrating when they finish. Left alone it looks around, goes for a stroll
+and dozes off. Early stage.
 
 Download your system's archive from
 [Releases](https://github.com/FullFran/familiard/releases/latest), unpack it, and run:
@@ -50,6 +51,7 @@ familiard summon                 # the default pet (-s)
 familiard summon mochi           # any other, as many at once as you like
 familiard summon mochi --here    # follows only the next session in this folder, then leaves
 familiard summon mochi --name "Bug del login"   # with a caption over its head
+familiard summon mochi --still   # never walks around on its own
 familiard default mochi          # choose the default
 familiard dismiss mochi          # send it away (-d; --all for everyone)
 familiard remove mochi          # delete it from the gallery
@@ -71,7 +73,7 @@ familiard add path/to/folder
 familiard summon my-pet
 ```
 
-Any pet in the Codex format works. [docs/pets.md](docs/pets.md) explains how to get the file
+Any pet in the Codex format works, version 1 or 2, with nothing added to it. [docs/pets.md](docs/pets.md) explains how to get the file
 out of ChatGPT and how to draw your own.
 
 ## React to your agents

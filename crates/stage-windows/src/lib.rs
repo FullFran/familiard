@@ -3,22 +3,25 @@
 //! whatever is below without any work here.
 #![cfg(windows)]
 
-use familiard_application::{Failure, Player, Stage};
+use familiard_application::{walk_within, Failure, Player, Pointer, Stage};
 use std::cell::RefCell;
 use std::ptr::{null, null_mut};
 use std::time::{Duration, Instant};
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, SIZE, WPARAM};
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    CreateCompatibleDC, CreateDIBSection, GetDC, ReleaseDC, SelectObject, AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO,
-    BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, HDC,
+    CreateCompatibleDC, CreateDIBSection, GetDC, GetMonitorInfoW, MonitorFromWindow, ReleaseDC, SelectObject,
+    AC_SRC_ALPHA, AC_SRC_OVER, BITMAPINFO, BITMAPINFOHEADER, BI_RGB, BLENDFUNCTION, DIB_RGB_COLORS, HDC, MONITORINFO,
+    MONITOR_DEFAULTTONEAREST,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::HiDpi::{SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{TrackMouseEvent, TME_LEAVE, TME_NONCLIENT, TRACKMOUSEEVENT};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, LoadCursorW, PostQuitMessage, RegisterClassW,
-    SetTimer, ShowWindow, TranslateMessage, UpdateLayeredWindow, HTCAPTION, IDC_ARROW, MSG, SW_SHOWNOACTIVATE,
-    ULW_ALPHA, WM_DESTROY, WM_NCHITTEST, WM_TIMER, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW,
-    WS_EX_TOPMOST, WS_POPUP,
+    CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, GetWindowRect, LoadCursorW, PostQuitMessage,
+    RegisterClassW, SetTimer, SetWindowPos, ShowWindow, TranslateMessage, UpdateLayeredWindow, HTCAPTION, IDC_ARROW,
+    MSG, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SW_SHOWNOACTIVATE, ULW_ALPHA, WM_DESTROY, WM_NCHITTEST,
+    WM_NCLBUTTONDOWN, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_TIMER, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
 const CLASS_NAME: &str = "familiard";
@@ -45,6 +48,10 @@ struct Theatre {
     box_size: (u32, u32),
     surface: HDC,
     pixels: *mut u8,
+    /// Whether the pointer is over the pet, since Windows only says when it moves there.
+    hovering: bool,
+    /// Windows is running its drag loop, which sends leave messages of its own.
+    held: bool,
 }
 
 impl Theatre {
@@ -92,19 +99,120 @@ impl Theatre {
         if changed {
             self.present(window);
         }
+        self.walk(window);
         self.schedule(window);
     }
+
+    /// Takes the step the pet asks for, inside the work area of its monitor. `SetWindowPos`
+    /// is what the drag Windows runs for us ends up doing to the window.
+    fn walk(&mut self, window: HWND) {
+        let Some(step) = self.player.step() else { return };
+        let moved = move_inside_monitor(window, step, self.box_size.0).unwrap_or(0);
+        self.player.walked(moved);
+    }
+
+    fn feel(&mut self, window: HWND, event: Pointer) {
+        if self.player.pointer(event) {
+            self.present(window);
+        }
+        self.schedule(window);
+    }
+}
+
+/// Moves the window sideways, keeping it in its monitor's work area. Returns how far it went.
+fn move_inside_monitor(window: HWND, step: i32, width: u32) -> Option<i32> {
+    // SAFETY: every pointer refers to a live local, for a window owned by this thread.
+    unsafe {
+        let mut rect: RECT = std::mem::zeroed();
+        if GetWindowRect(window, &mut rect) == 0 {
+            return None;
+        }
+        let monitor = MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST);
+        let mut info: MONITORINFO = std::mem::zeroed();
+        info.cbSize = std::mem::size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(monitor, &mut info) == 0 {
+            return None;
+        }
+        let x = walk_within(rect.left, step, width, (info.rcWork.left, info.rcWork.right));
+        let flags = SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE;
+        if SetWindowPos(window, null_mut(), x, rect.top, 0, 0, flags) == 0 {
+            return None;
+        }
+        Some(x - rect.left)
+    }
+}
+
+fn window_corner(window: HWND) -> Option<(i32, i32)> {
+    // SAFETY: the pointer refers to a live local, for a window owned by this thread.
+    unsafe {
+        let mut rect: RECT = std::mem::zeroed();
+        (GetWindowRect(window, &mut rect) != 0).then_some((rect.left, rect.top))
+    }
+}
+
+/// Runs on the stage, unless a message arrived in the middle of another one: a lost mouse
+/// event is harmless, and a panic here could not unwind through Windows.
+fn with_theatre(action: impl FnOnce(&mut Theatre)) {
+    THEATRE.with(|theatre| {
+        if let Ok(mut theatre) = theatre.try_borrow_mut() {
+            if let Some(theatre) = theatre.as_mut() {
+                action(theatre);
+            }
+        }
+    });
 }
 
 unsafe extern "system" fn window_procedure(window: HWND, message: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     match message {
         WM_TIMER => {
-            THEATRE.with(|theatre| {
-                if let Some(theatre) = theatre.borrow_mut().as_mut() {
-                    theatre.tick(window);
+            with_theatre(|theatre| theatre.tick(window));
+            0
+        }
+        WM_NCMOUSEMOVE => {
+            with_theatre(|theatre| {
+                if !theatre.hovering && !theatre.held {
+                    theatre.hovering = true;
+                    let mut track = TRACKMOUSEEVENT {
+                        cbSize: std::mem::size_of::<TRACKMOUSEEVENT>() as u32,
+                        dwFlags: TME_LEAVE | TME_NONCLIENT,
+                        hwndTrack: window,
+                        dwHoverTime: 0,
+                    };
+                    TrackMouseEvent(&mut track);
+                    theatre.feel(window, Pointer::Entered);
                 }
             });
-            0
+            DefWindowProcW(window, message, wparam, lparam)
+        }
+        WM_NCMOUSELEAVE => {
+            with_theatre(|theatre| {
+                theatre.hovering = false;
+                if !theatre.held {
+                    theatre.feel(window, Pointer::Left);
+                }
+            });
+            DefWindowProcW(window, message, wparam, lparam)
+        }
+        // On a title bar, the default handling runs the whole drag and returns at the release,
+        // while timers keep arriving here. So nothing may stay borrowed across it.
+        WM_NCLBUTTONDOWN => {
+            let from = window_corner(window);
+            with_theatre(|theatre| {
+                theatre.held = true;
+                theatre.feel(window, Pointer::Pressed);
+            });
+            let result = DefWindowProcW(window, message, wparam, lparam);
+            let to = window_corner(window);
+            with_theatre(|theatre| {
+                theatre.held = false;
+                theatre.hovering = false;
+                if let (Some(from), Some(to)) = (from, to) {
+                    let distance = (to.0 - from.0).unsigned_abs() + (to.1 - from.1).unsigned_abs();
+                    theatre.player.pointer(Pointer::Dragged(distance));
+                }
+                theatre.feel(window, Pointer::Released);
+            });
+            result
         }
         // Everywhere the pet is solid counts as a title bar, so Windows does the dragging.
         // Transparent pixels never get here.
@@ -188,8 +296,15 @@ impl Stage for WindowsStage {
             }
             SelectObject(surface, bitmap);
 
-            let theatre =
-                Theatre { player, last: Instant::now(), box_size: (width, height), surface, pixels: bits.cast() };
+            let theatre = Theatre {
+                player,
+                last: Instant::now(),
+                box_size: (width, height),
+                surface,
+                pixels: bits.cast(),
+                hovering: false,
+                held: false,
+            };
             theatre.present(window);
             theatre.schedule(window);
             THEATRE.with(|slot| *slot.borrow_mut() = Some(theatre));

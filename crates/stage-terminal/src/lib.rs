@@ -21,7 +21,10 @@ impl TerminalStage {
 }
 
 impl Stage for TerminalStage {
-    fn perform(self: Box<Self>, mut player: Player) -> Result<(), Failure> {
+    fn perform(self: Box<Self>, player: Player) -> Result<(), Failure> {
+        // A terminal has no window to walk and no pointer to feel, but it can still show
+        // the pet looking around and dozing.
+        let mut player = player.still();
         let mut out = std::io::stdout();
         // The caption is a line of text here, so only the frames need room.
         let bounds = player.pet_bounds();

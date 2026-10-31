@@ -322,3 +322,15 @@ fn summon_rejects_options_it_does_not_know_and_a_name_without_a_value() {
     assert!(home.fails(&["summon", "--name"]).contains("--name needs a value"));
     assert_eq!(home.ok(&["pets"]), "* demo  Demo\n");
 }
+
+#[test]
+fn still_is_accepted_by_summon_and_run_and_explained_in_the_help() {
+    let home = Home::new();
+    let demo = concat!(env!("CARGO_MANIFEST_DIR"), "/../../pets/demo");
+    home.ok(&["add", demo]);
+    assert!(home.ok(&["summon", "demo", "--still", "--stage", "terminal"]).contains("demo is here"));
+    assert!(home.is_open("demo"));
+    home.ok(&["dismiss", "demo"]);
+    home.ok(&["run", "--pet", demo, "--still", "--stage", "terminal", "--rows", "4", "--frames", "1"]);
+    assert!(home.ok(&["--help"]).contains("--still: never walk around on its own"));
+}

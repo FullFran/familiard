@@ -2,7 +2,7 @@
 //! Sway, Hyprland...). Pixels go through shared memory, so no GPU or webview is needed.
 #![cfg(target_os = "linux")]
 
-use familiard_application::{Failure, Player, Stage};
+use familiard_application::{walk_within, Failure, Player, Pointer, Stage};
 use smithay_client_toolkit::{
     compositor::{CompositorHandler, CompositorState, Region},
     delegate_dispatch2, delegate_registry,
@@ -97,6 +97,7 @@ impl Stage for WaylandStage {
                 if state.player.tick(elapsed).is_some() && state.configured {
                     state.draw();
                 }
+                state.walk();
                 let wait = state.player.next_frame_in().max(Duration::from_millis(1));
                 TimeoutAction::ToDuration(wait)
             })
@@ -196,6 +197,29 @@ impl Theatre {
                 self.layer.commit();
             }
         }
+    }
+
+    /// Takes the step the pet asks for, inside the output it is on. It uses the same margin
+    /// a drag does, but a walk never crosses to another output.
+    fn walk(&mut self) {
+        if !self.configured {
+            return;
+        }
+        let Some(step) = self.player.step() else { return };
+        let screen = self.output.as_ref().and_then(|output| self.outputs.info(output));
+        let width = screen.and_then(|info| info.logical_size).map(|(width, _)| width);
+        let moved = match width {
+            Some(width) => {
+                let x = walk_within(self.position.0, step, self.box_size.0, (0, width));
+                let moved = x - self.position.0;
+                self.position.0 = x;
+                self.layer.set_margin(self.position.1, 0, 0, self.position.0);
+                self.layer.commit();
+                moved
+            }
+            None => 0,
+        };
+        self.player.walked(moved);
     }
 
     /// A layer surface cannot change output, so a new one takes over under the pointer.
@@ -324,26 +348,43 @@ impl SeatHandler for Theatre {
 
 impl PointerHandler for Theatre {
     fn pointer_frame(&mut self, _: &Connection, qh: &QueueHandle<Self>, _: &wl_pointer::WlPointer, events: &[PointerEvent]) {
+        let mut changed = false;
         for event in events {
             if &event.surface != self.layer.wl_surface() {
                 continue;
             }
             match event.kind {
-                PointerEventKind::Press { button: BTN_LEFT, .. } => self.grabbed_at = Some(event.position),
-                PointerEventKind::Release { button: BTN_LEFT, .. } => self.grabbed_at = None,
+                PointerEventKind::Enter { .. } => changed |= self.player.pointer(Pointer::Entered),
+                PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                    self.grabbed_at = Some(event.position);
+                    changed |= self.player.pointer(Pointer::Pressed);
+                }
+                PointerEventKind::Release { button: BTN_LEFT, .. } => {
+                    self.grabbed_at = None;
+                    changed |= self.player.pointer(Pointer::Released);
+                }
                 // While a button is held the compositor keeps sending motion here, so
                 // leaving means the grab was lost. Dropping it keeps the pet from
                 // following a pointer with no button pressed.
-                PointerEventKind::Leave { .. } => self.grabbed_at = None,
+                PointerEventKind::Leave { .. } => {
+                    self.grabbed_at = None;
+                    changed |= self.player.pointer(Pointer::Left);
+                }
                 PointerEventKind::Motion { .. } => {
                     // The surface moves under the pointer, so the offset from the grab
                     // point is always the distance still to travel.
                     if let Some(grab) = self.grabbed_at {
-                        self.drag_by(event.position.0 - grab.0, event.position.1 - grab.1, qh);
+                        let (dx, dy) = (event.position.0 - grab.0, event.position.1 - grab.1);
+                        changed |= self.player.pointer(Pointer::Dragged((dx.abs() + dy.abs()).round() as u32));
+                        self.drag_by(dx, dy, qh);
                     }
                 }
                 _ => {}
             }
+        }
+        // Waking up or looking at the pointer should not wait for the next timer.
+        if changed && self.configured {
+            self.draw();
         }
     }
 }

@@ -3,11 +3,13 @@
 mod activity;
 mod caption;
 mod companion;
+mod life;
 mod pet;
 mod sprite;
 
 pub use activity::{Activity, Report, Signal};
 pub use caption::{caption_mood, caption_moods, clean_label, fit_caption};
 pub use companion::Companion;
-pub use pet::{Clip, Mood, Pet, PetError};
+pub use life::{Dice, Life, Pointer};
+pub use pet::{Clip, Mood, Moves, Pet, PetError};
 pub use sprite::Sprite;

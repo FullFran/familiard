@@ -2,10 +2,13 @@
 //! a new pet format implements [`PetSource`], a new place to show the pet (an OS, a
 //! terminal, an editor panel) implements [`Stage`], and a new way of hearing about
 //! activity implements [`ActivityFeed`], and a way of writing text implements [`Captioner`].
-use familiard_domain::{caption_mood, caption_moods, clean_label, fit_caption, Activity, Companion, Mood, Pet, Report, Sprite};
+use familiard_domain::{caption_mood, caption_moods, clean_label, fit_caption, Activity, Companion, Dice, Life, Mood, Pet, Report, Sprite};
 use std::error::Error;
+use std::hash::{BuildHasher, Hasher};
 use std::sync::mpsc::{Receiver, Sender};
 use std::time::Duration;
+
+pub use familiard_domain::Pointer;
 
 pub type Failure = Box<dyn Error + Send + Sync>;
 
@@ -80,12 +83,34 @@ pub struct Player {
     inbox: Receiver<Report>,
     caption: Option<Caption>,
     bounds: (u32, u32),
+    life: Life,
 }
 
 impl Player {
     pub fn new(pet: Pet, inbox: Receiver<Report>) -> Self {
         let bounds = pet.bounds();
-        Self { companion: Companion::new(pet), activity: Activity::default(), inbox, caption: None, bounds }
+        Self {
+            companion: Companion::new(pet),
+            activity: Activity::default(),
+            inbox,
+            caption: None,
+            bounds,
+            life: Life::new(chance()),
+        }
+    }
+
+    /// Replaces where this pet's chance comes from. Call it before anything else that shapes
+    /// the pet's life, as it starts that life over.
+    pub fn rolling(mut self, dice: Dice) -> Self {
+        self.life = Life::new(dice);
+        self
+    }
+
+    /// Never strolls. A stage that cannot move the pet asks for this, and so does a person
+    /// who wants it to stay put; it still looks around and dozes.
+    pub fn still(mut self) -> Self {
+        self.life = self.life.rooted();
+        self
     }
 
     /// Follows only the next session to report from `folder` or below it, and leaves when
@@ -134,28 +159,54 @@ impl Player {
     }
 
     pub fn sprite(&self) -> &Sprite {
-        self.companion.sprite()
+        self.life.sprite(self.companion.pet()).unwrap_or_else(|| self.companion.sprite())
     }
 
     /// Reads what happened since the last tick. Returns the sprite to draw when what
     /// should be on screen changed.
     pub fn tick(&mut self, elapsed: Duration) -> Option<&Sprite> {
+        let mut heard = false;
         while let Ok(report) = self.inbox.try_recv() {
-            self.activity.record(report);
+            heard |= self.activity.record(report);
         }
         self.activity.advance(elapsed);
         let mood = self.activity.mood();
         let new_mood = mood != self.companion.mood();
         self.companion.feel(mood);
+        if heard {
+            self.life.hear(self.companion.pet());
+        }
         let new_frame = self.companion.advance(if new_mood { Duration::ZERO } else { elapsed });
+        let new_life = self.life.advance(self.companion.pet(), elapsed, mood == Mood::Idle);
         let new_caption = self.caption.as_mut().is_some_and(|caption| caption.show(mood));
-        (new_mood || new_frame || new_caption).then(|| self.companion.sprite())
+        // A new frame of the mood's clip means nothing while an act covers it.
+        let acting = self.life.sprite(self.companion.pet()).is_some();
+        (new_mood || (new_frame && !acting) || new_life || new_caption).then(|| self.sprite())
+    }
+
+    /// Tells the pet what the pointer did to it. Returns whether to paint again. A stage with
+    /// no pointer never calls this.
+    pub fn pointer(&mut self, event: Pointer) -> bool {
+        self.life.pointer(self.companion.pet(), event)
+    }
+
+    /// The walk this pet asks of its stage: pixels to move sideways right now, positive to
+    /// the right. The stage moves it as far as the screen allows, with [`walk_within`], and
+    /// answers with [`Player::walked`]. A stage that cannot move the pet asks for
+    /// [`Player::still`] and never calls this.
+    pub fn step(&mut self) -> Option<i32> {
+        self.life.step()
+    }
+
+    /// How far the last [`Player::step`] really moved the pet. Less than asked turns it around.
+    pub fn walked(&mut self, moved: i32) {
+        self.life.walked(moved);
     }
 
     /// Paints the whole picture into a canvas of [`Player::bounds`], as premultiplied BGRA.
     /// Returns where the sprite landed, which is what an input region needs.
     pub fn paint(&self, canvas: &mut [u8]) -> (u32, u32) {
-        let at = paint_bgra(canvas, self.bounds, self.companion.sprite());
+        let at = paint_bgra(canvas, self.bounds, self.sprite());
         if let Some(caption) = &self.caption {
             paint_caption_bgra(canvas, self.bounds, caption.sprite());
         }
@@ -163,8 +214,30 @@ impl Player {
     }
 
     pub fn next_frame_in(&self) -> Duration {
-        self.companion.next_frame_in()
+        self.life.next_in(self.companion.pet()).unwrap_or_else(|| self.companion.next_frame_in())
     }
+}
+
+/// Chance different in every process, so pets out at once do not move in step. A small
+/// xorshift over the seed the standard library already gets from the system.
+fn chance() -> Dice {
+    let mut state = std::collections::hash_map::RandomState::new().build_hasher().finish() | 1;
+    Box::new(move || {
+        state ^= state << 13;
+        state ^= state >> 7;
+        state ^= state << 17;
+        state
+    })
+}
+
+/// Where a walking pet ends up: its left edge `x` moved by `step`, with a box `width` wide
+/// kept between `low` and `high`. A screen too narrow for the box leaves it where it is.
+pub fn walk_within(x: i32, step: i32, width: u32, (low, high): (i32, i32)) -> i32 {
+    let rightmost = high - width as i32;
+    if rightmost < low {
+        return x;
+    }
+    (x + step).clamp(low, rightmost)
 }
 
 /// Paints a sprite bottom-centered as premultiplied BGRA, the format desktop compositors
@@ -223,7 +296,7 @@ pub fn summon(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use familiard_domain::{Clip, Mood, Signal};
+    use familiard_domain::{Clip, Mood, Moves, Signal};
     use std::collections::HashMap;
     use std::sync::mpsc::channel;
     use std::cell::Cell;
@@ -504,5 +577,175 @@ mod tests {
         let captioner = CountingCaptioner(Rc::new(Cell::new(0)));
         summon(&FixedPet, Box::new(Leaves(seen.clone())), channel().1, |player| player.captioned("Bug", &captioner)).unwrap();
         assert_eq!(*seen.lock().unwrap(), Some(true));
+    }
+
+    /// Idle is base 1, working 9, looks 50 and up, running 30 and 40, doze 70, jump 80, wave 90.
+    fn lively_pet() -> Pet {
+        let clip = |base: u8, frames: u8| {
+            Clip::new((0..frames).map(|at| Sprite::new(1, 1, vec![base + at, 0, 0, 255]).unwrap()).collect()).unwrap()
+        };
+        let clips = HashMap::from([
+            (Mood::Idle, clip(1, 2)),
+            (Mood::Working, clip(9, 2)),
+            (Mood::Failed, clip(70, 8)),
+            (Mood::Celebrating, clip(80, 2)),
+            (Mood::Done, clip(90, 4)),
+        ]);
+        let moves = Moves { running: Some((clip(30, 8), clip(40, 8))), looks: vec![clip(50, 8), clip(60, 8)] };
+        Pet::new("p", clips).unwrap().with_moves(moves)
+    }
+
+    fn lively() -> (Player, Sender<Report>) {
+        let (outbox, inbox) = channel();
+        (Player::new(lively_pet(), inbox).rolling(Box::new(|| 0)), outbox)
+    }
+
+    fn red(player: &Player) -> u8 {
+        player.sprite().rgba()[0]
+    }
+
+    #[test]
+    fn a_glance_is_drawn_and_a_report_ends_it_on_the_next_tick() {
+        let (mut player, outbox) = lively();
+        assert_eq!(player.tick(Duration::from_secs(6)).unwrap().rgba()[0], 50);
+        outbox.send(says("a", Signal::Working)).unwrap();
+        assert_eq!(player.tick(Duration::ZERO).unwrap().rgba()[0], 9);
+        assert_eq!(player.companion.mood(), Mood::Working);
+    }
+
+    #[test]
+    fn nothing_happens_on_its_own_while_a_mood_is_on_and_the_caption_keeps_its_words() {
+        let (outbox, inbox) = channel();
+        let captioner = CountingCaptioner(Rc::new(Cell::new(0)));
+        let mut player = Player::new(lively_pet(), inbox).rolling(Box::new(|| 0)).captioned("Bug", &captioner);
+        outbox.send(says("a", Signal::Working)).unwrap();
+        player.tick(Duration::ZERO);
+        for _ in 0..200 {
+            player.tick(Duration::from_secs(1));
+            outbox.send(says("a", Signal::Working)).unwrap();
+            assert!((9..11).contains(&red(&player)));
+            assert_eq!(player.step(), None);
+            assert_eq!(player.caption_text(), Some("Bug \u{b7} working"));
+        }
+    }
+
+    #[test]
+    fn a_caption_stays_through_a_glance_and_the_box_does_not_change() {
+        let (outbox, inbox) = channel();
+        drop(outbox);
+        let captioner = CountingCaptioner(Rc::new(Cell::new(0)));
+        let mut player = Player::new(lively_pet(), inbox).rolling(Box::new(|| 0)).captioned("Bug", &captioner);
+        let bounds = player.bounds();
+        assert!(player.tick(Duration::from_secs(6)).is_some());
+        assert_eq!(red(&player), 50);
+        assert_eq!(player.caption_text(), Some("Bug"));
+        assert_eq!(player.bounds(), bounds);
+    }
+
+    #[test]
+    fn the_session_a_bound_pet_does_not_follow_does_not_wake_it_and_its_own_does() {
+        let (outbox, inbox) = channel();
+        let mut player = Player::new(lively_pet(), inbox).rolling(Box::new(|| 0)).still().following("/work/app");
+        player.tick(Duration::from_secs(300));
+        player.tick(Duration::from_secs(10));
+        assert_eq!(red(&player), 74);
+        outbox.send(Report { session: "other".into(), signal: Signal::Working, folder: Some("/else".into()) }).unwrap();
+        player.tick(Duration::ZERO);
+        assert_eq!(red(&player), 74, "still asleep");
+        outbox.send(says("mine", Signal::Working)).unwrap();
+        assert_eq!(player.tick(Duration::ZERO).unwrap().rgba()[0], 80, "startled");
+        player.tick(Duration::from_secs(1));
+        assert!((9..11).contains(&red(&player)), "the mood wins as soon as the jump is over");
+        assert_eq!(player.companion.mood(), Mood::Working);
+    }
+
+    #[test]
+    fn a_held_doze_asks_for_no_painting_but_keeps_listening() {
+        let (mut player, outbox) = lively();
+        player = player.still();
+        player.tick(Duration::from_secs(300));
+        player.tick(Duration::from_secs(10));
+        for _ in 0..100 {
+            let wait = player.next_frame_in();
+            assert!(wait <= Duration::from_millis(250));
+            assert!(player.tick(wait).is_none());
+        }
+        outbox.send(says("a", Signal::Registered)).unwrap();
+        assert_eq!(player.tick(Duration::ZERO).unwrap().rgba()[0], 80);
+    }
+
+    #[test]
+    fn the_pointer_reaches_the_pet_and_says_when_to_paint() {
+        let (mut player, _outbox) = lively();
+        player.tick(Duration::ZERO);
+        assert!(player.pointer(Pointer::Entered));
+        assert_eq!(red(&player), 50);
+        let (mut player, _outbox) = lively();
+        assert!(!player.pointer(Pointer::Pressed));
+        assert!(player.pointer(Pointer::Released));
+        assert_eq!(red(&player), 90);
+    }
+
+    #[test]
+    fn a_walk_is_asked_of_the_stage_and_a_still_pet_never_asks() {
+        let (mut player, _outbox) = lively();
+        player.tick(Duration::from_secs(60));
+        assert_eq!(red(&player), 30);
+        assert!(player.next_frame_in() <= Duration::from_millis(50));
+        player.tick(Duration::from_millis(100));
+        let step = player.step().unwrap();
+        assert_eq!(step, 4);
+        player.walked(step);
+
+        let (player, _outbox) = lively();
+        let mut still = player.still();
+        for _ in 0..100 {
+            still.tick(Duration::from_secs(3));
+            assert_eq!(still.step(), None);
+            assert!(!(30..48).contains(&red(&still)));
+        }
+    }
+
+    #[test]
+    fn the_input_region_follows_what_is_on_screen_during_an_act() {
+        // Sprite::solid_spans of Player::sprite is the region a stage gives the compositor.
+        let frame = |alpha: [u8; 2]| Sprite::new(2, 1, alpha.iter().flat_map(|a| [9, 9, 9, *a]).collect()).unwrap();
+        let clips = HashMap::from([(Mood::Idle, Clip::new(vec![frame([255, 0])]).unwrap())]);
+        let moves = Moves { running: None, looks: vec![Clip::new(vec![frame([0, 255])]).unwrap()] };
+        let pet = Pet::new("p", clips).unwrap().with_moves(moves);
+        let mut player = Player::new(pet, channel().1).rolling(Box::new(|| 0));
+        assert_eq!(player.sprite().solid_spans(0), [(0, 1)]);
+        player.tick(Duration::from_secs(6));
+        assert_eq!(player.sprite().solid_spans(0), [(1, 2)]);
+    }
+
+    #[test]
+    fn the_box_holds_the_frames_of_every_act() {
+        let wide = Sprite::new(9, 1, vec![0; 36]).unwrap();
+        let clip = |sprite: Sprite| Clip::new(vec![sprite]).unwrap();
+        let tall = Sprite::new(1, 7, vec![0; 28]).unwrap();
+        let clips = HashMap::from([(Mood::Idle, clip(Sprite::new(1, 1, vec![0; 4]).unwrap()))]);
+        let moves = Moves { running: Some((clip(wide.clone()), clip(wide))), looks: vec![clip(tall)] };
+        let player = Player::new(Pet::new("p", clips).unwrap().with_moves(moves), channel().1);
+        assert_eq!(player.bounds(), (9, 7));
+    }
+
+    #[test]
+    fn walking_stops_at_both_edges_and_a_screen_too_narrow_keeps_the_pet_put() {
+        assert_eq!(walk_within(100, 2, 50, (0, 200)), 102);
+        assert_eq!(walk_within(149, 2, 50, (0, 200)), 150);
+        assert_eq!(walk_within(150, 2, 50, (0, 200)), 150);
+        assert_eq!(walk_within(0, -2, 50, (0, 200)), 0);
+        assert_eq!(walk_within(-1900, -2, 50, (-1920, 0)), -1902);
+        assert_eq!(walk_within(-1920, -2, 50, (-1920, 0)), -1920);
+        assert_eq!(walk_within(10, 2, 300, (0, 200)), 10);
+    }
+
+    #[test]
+    fn each_player_gets_its_own_chance() {
+        let (mut first, mut second) = (chance(), chance());
+        assert_ne!((first(), first()), (second(), second()));
+        let rolls: std::collections::HashSet<u64> = (0..100).map(|_| first()).collect();
+        assert_eq!(rolls.len(), 100);
     }
 }
