@@ -71,3 +71,53 @@ jobs:
           cd dist
           sha256sum * > SHA256SUMS
           gh release create "$GITHUB_REF_NAME" * --repo "$GITHUB_REPOSITORY" --generate-notes
+
+  # After publish on purpose: Mozilla may take a while or refuse, and the binaries
+  # must ship regardless. Rerunning this job for a version Mozilla already accepted
+  # fails, because a version cannot be uploaded twice.
+  extension:
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: The manifest takes the tag's version
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          jq --arg version "$version" '.version = $version' extension/manifest.json > manifest.tmp
+          mv manifest.tmp extension/manifest.json
+      - run: node --test
+        working-directory: extension
+      - name: Check the extension
+        run: npx --yes web-ext@10.8.0 lint --source-dir extension --ignore-files "test/**"
+      - name: Package for Chromium
+        run: |
+          mkdir -p dist
+          (cd extension && zip -qr "../dist/familiard-extension-$GITHUB_REF_NAME-chromium.zip" . -x 'test/*')
+      - name: Attach the Chromium package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" dist/*.zip --repo "$GITHUB_REPOSITORY"
+      - name: Sign for Firefox and Zen
+        env:
+          WEB_EXT_API_KEY: ${{ secrets.WEB_EXT_API_KEY }}
+          WEB_EXT_API_SECRET: ${{ secrets.WEB_EXT_API_SECRET }}
+        run: >
+          npx --yes web-ext@10.8.0 sign
+          --source-dir extension
+          --ignore-files "test/**"
+          --channel unlisted
+          --artifacts-dir signed
+      - name: Attach the signed package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          xpi=$(ls signed/*.xpi)
+          test "$(printf '%s\n' "$xpi" | wc -l)" = 1
+          cp "$xpi" "dist/familiard-extension-$GITHUB_REF_NAME-firefox.xpi"
+          gh release upload "$GITHUB_REF_NAME" dist/*.xpi --repo "$GITHUB_REPOSITORY"
