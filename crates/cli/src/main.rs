@@ -1,4 +1,7 @@
 //! Composition root: turns the command line into calls to the adapters.
+mod browser;
+mod native_host;
+
 use familiard_agents::{interpret, LocalFeed, Roster};
 use familiard_application::{summon, ActivityFeed, Failure, PetSource, Stage};
 use familiard_caption::FontCaptioner;
@@ -14,21 +17,25 @@ use std::time::{Duration, Instant};
 
 const USAGE: &str = "usage:
   familiard                        summon the default pet
-  familiard summon, -s [id] [--here] [--name TEXT] [--at X,Y] [--stage desktop|terminal]
+  familiard summon, -s [id] [--here | --session ID] [--name TEXT] [--at X,Y] [--stage desktop|terminal]
                                    --here: follow the next session in this folder, leave when it ends
+                                   --session: follow this exact session, leave when it ends
   familiard dismiss, -d [id] | --all   send pets away (the default one if no id)
   familiard pets, -l [--json]      list the gallery and which pets are open
   familiard add <folder> [--as id] add a pet to the gallery
   familiard remove <id>            remove a pet from the gallery
   familiard default <id>           choose the default pet
-  familiard run --pet <dir> [--follow DIR] [--name TEXT] [--stage desktop|terminal] [--rows N] [--frames N] [--at X,Y]
+  familiard run --pet <dir> [--follow DIR | --session ID] [--name TEXT] [--stage desktop|terminal] [--rows N] [--frames N] [--at X,Y]
                                    run a pet in the foreground, without the gallery
   familiard hook --agent <name> [--event <event>] [--session <id>] [--project <dir>]
+  familiard browser install|uninstall   connect the browser extension (docs/browser.md)
+  familiard native-host            what the browser extension talks to; not for typing
   familiard --version";
 const MAX_PAYLOAD: u64 = 1 << 20;
 const PAYLOAD_TIMEOUT: Duration = Duration::from_secs(1);
 const SUMMON_TIMEOUT: Duration = Duration::from_secs(5);
 const CASCADE: i32 = 140;
+const MAX_SESSION: usize = 1024;
 
 fn roster() -> Roster {
     Roster::new(home().join("running"))
@@ -42,7 +49,24 @@ struct Options {
     frames: Option<u32>,
     at: (i32, i32),
     follow: Option<String>,
+    session: Option<String>,
     name: Option<String>,
+}
+
+/// Which sessions a summoned pet listens to.
+enum Binding {
+    Everything,
+    Here,
+    Session(String),
+}
+
+fn checked_session(session: String) -> Result<String, Failure> {
+    let fits = !session.is_empty() && session.len() <= MAX_SESSION;
+    if fits && !session.chars().any(char::is_control) {
+        Ok(session)
+    } else {
+        Err(format!("invalid session: use 1 to {MAX_SESSION} bytes and no control characters\n{USAGE}").into())
+    }
 }
 
 fn parse_at(text: &str) -> Result<(i32, i32), Failure> {
@@ -60,6 +84,7 @@ fn parse_run(args: Vec<String>) -> Result<Options, Failure> {
             frames: None,
             at: (80, 80),
             follow: None,
+            session: None,
             name: None,
         };
     let mut args = args.into_iter();
@@ -73,12 +98,16 @@ fn parse_run(args: Vec<String>) -> Result<Options, Failure> {
             "--frames" => options.frames = Some(value()?.parse()?),
             "--at" => options.at = parse_at(&value()?)?,
             "--follow" => options.follow = Some(canonical(&value()?)),
+            "--session" => options.session = Some(checked_session(value()?)?),
             "--name" => options.name = Some(value()?),
             other => return Err(format!("unknown option {other}\n{USAGE}").into()),
         }
     }
     if options.pet.is_empty() {
         return Err(format!("--pet is required\n{USAGE}").into());
+    }
+    if options.follow.is_some() && options.session.is_some() {
+        return Err(format!("--follow and --session cannot be used together\n{USAGE}").into());
     }
     Ok(options)
 }
@@ -138,6 +167,9 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
         if let Some(folder) = &options.follow {
             player = player.following(folder.as_str());
         }
+        if let Some(session) = &options.session {
+            player = player.following_session(session.as_str());
+        }
         // The font is only read for a pet with something to say, and gone once it has been
         // used. A pet that cannot write its caption is still a pet.
         let Some(label) = label(&options) else { return player };
@@ -180,6 +212,7 @@ fn summon_pet(args: Vec<String>) -> Result<(), Failure> {
     let mut at = None;
     let mut stage = "desktop".to_string();
     let mut here = false;
+    let mut session = None;
     let mut name = None;
     let mut args = args.into_iter();
     while let Some(arg) = args.next() {
@@ -188,22 +221,44 @@ fn summon_pet(args: Vec<String>) -> Result<(), Failure> {
             "--at" => at = Some(parse_at(&value()?)?),
             "--stage" => stage = value()?,
             "--here" => here = true,
+            "--session" => session = Some(checked_session(value()?)?),
             "--name" => name = Some(value()?),
             other if !other.starts_with('-') && id.is_none() => id = Some(other.to_string()),
             other => return Err(format!("unknown option {other}\n{USAGE}").into()),
         }
     }
-    let gallery = Gallery::new(&home());
+    let binding = match (here, session) {
+        (true, Some(_)) => return Err(format!("--here and --session cannot be used together\n{USAGE}").into()),
+        (true, None) => Binding::Here,
+        (false, Some(session)) => Binding::Session(session),
+        (false, None) => Binding::Everything,
+    };
     let id = match id {
         Some(id) => id,
-        None => gallery.chosen()?,
+        None => Gallery::new(&home()).chosen()?,
     };
-    let folder = gallery.folder(&id)?;
+    if bring_out(&id, at, &stage, &binding, name.as_deref())? {
+        println!("{id} is here");
+    } else {
+        println!("{id} is already here");
+    }
+    Ok(())
+}
+
+/// Starts a pet unless it is already out, and returns whether it started. It prints nothing,
+/// because the native host's stdout belongs to the browser.
+fn bring_out(
+    id: &str,
+    at: Option<(i32, i32)>,
+    stage: &str,
+    binding: &Binding,
+    name: Option<&str>,
+) -> Result<bool, Failure> {
+    let folder = Gallery::new(&home()).folder(id)?;
     let roster = roster();
     let open = roster.open();
-    if open.contains(&id) {
-        println!("{id} is already here");
-        return Ok(());
+    if open.iter().any(|entry| entry == id) {
+        return Ok(false);
     }
     // New pets appear in a row, so they do not land on top of each other.
     let (x, y) = at.unwrap_or((80 + CASCADE * open.len() as i32, 80));
@@ -213,12 +268,18 @@ fn summon_pet(args: Vec<String>) -> Result<(), Failure> {
     let log_path = logs.join(format!("{id}.log"));
     let mut command = Command::new(std::env::current_exe()?);
     command
-        .args(["run", "--id", &id, "--stage", &stage, "--at", &format!("{x},{y}"), "--pet"])
+        .args(["run", "--id", id, "--stage", stage, "--at", &format!("{x},{y}"), "--pet"])
         .arg(&folder);
-    if here {
-        command.arg("--follow").arg(fs::canonicalize(std::env::current_dir()?)?);
+    match binding {
+        Binding::Everything => {}
+        Binding::Here => {
+            command.arg("--follow").arg(fs::canonicalize(std::env::current_dir()?)?);
+        }
+        Binding::Session(session) => {
+            command.args(["--session", session]);
+        }
     }
-    if let Some(name) = &name {
+    if let Some(name) = name {
         command.args(["--name", name]);
     }
     command
@@ -226,7 +287,10 @@ fn summon_pet(args: Vec<String>) -> Result<(), Failure> {
         .stdout(Stdio::null())
         .stderr(File::create(&log_path)?);
     detach(&mut command);
-    let mut child = command.spawn()?;
+    let mut child = match binding {
+        Binding::Session(_) => spawn_outside_job(&mut command)?,
+        _ => command.spawn()?,
+    };
 
     let started = Instant::now();
     while started.elapsed() < SUMMON_TIMEOUT {
@@ -234,15 +298,14 @@ fn summon_pet(args: Vec<String>) -> Result<(), Failure> {
             let log = fs::read_to_string(&log_path).unwrap_or_default();
             return Err(format!("{id} could not appear ({status}): {}", log.trim()).into());
         }
-        if roster.open().contains(&id) {
+        if roster.open().iter().any(|entry| entry == id) {
             // Give a stage that fails right after listening the chance to say so.
             std::thread::sleep(Duration::from_millis(150));
             if let Some(status) = child.try_wait()? {
                 let log = fs::read_to_string(&log_path).unwrap_or_default();
                 return Err(format!("{id} could not appear ({status}): {}", log.trim()).into());
             }
-            println!("{id} is here");
-            return Ok(());
+            return Ok(true);
         }
         std::thread::sleep(Duration::from_millis(50));
     }
@@ -277,6 +340,27 @@ fn detach(command: &mut Command) {
 #[cfg(not(any(unix, windows)))]
 fn detach(_command: &mut Command) {}
 
+/// Firefox runs its native host in a Windows job and kills the job when the host is done, so a
+/// pet started from there has to leave the job to stay. A job that forbids leaving fails the
+/// spawn, and then the pet simply stays in it.
+#[cfg(windows)]
+fn spawn_outside_job(command: &mut Command) -> std::io::Result<std::process::Child> {
+    use std::os::windows::process::CommandExt;
+    const DETACHED_PROCESS: u32 = 0x0000_0008;
+    const CREATE_BREAKAWAY_FROM_JOB: u32 = 0x0100_0000;
+    command.creation_flags(DETACHED_PROCESS | CREATE_BREAKAWAY_FROM_JOB);
+    command.spawn().or_else(|_| {
+        command.creation_flags(DETACHED_PROCESS);
+        command.spawn()
+    })
+}
+
+/// Elsewhere [`detach`]'s new process group is what keeps a pet alive.
+#[cfg(not(windows))]
+fn spawn_outside_job(command: &mut Command) -> std::io::Result<std::process::Child> {
+    command.spawn()
+}
+
 fn dismiss(args: Vec<String>) -> Result<(), Failure> {
     let roster = roster();
     let targets = match args.first().map(String::as_str) {
@@ -297,23 +381,29 @@ fn dismiss(args: Vec<String>) -> Result<(), Failure> {
     Ok(())
 }
 
+/// The listing of `pets --json`, which the browser's picker also shows.
+fn pet_rows() -> Vec<serde_json::Value> {
+    let open = roster().open();
+    Gallery::new(&home())
+        .list()
+        .iter()
+        .map(|entry| {
+            serde_json::json!({
+                "id": entry.id, "name": entry.name, "default": entry.is_default,
+                "open": open.contains(&entry.id),
+            })
+        })
+        .collect()
+}
+
 fn pets(args: Vec<String>) -> Result<(), Failure> {
+    if args.iter().any(|arg| arg == "--json") {
+        println!("{}", serde_json::to_string_pretty(&pet_rows())?);
+        return Ok(());
+    }
     let gallery = Gallery::new(&home());
     let open = roster().open();
     let entries = gallery.list();
-    if args.iter().any(|arg| arg == "--json") {
-        let rows: Vec<_> = entries
-            .iter()
-            .map(|entry| {
-                serde_json::json!({
-                    "id": entry.id, "name": entry.name, "default": entry.is_default,
-                    "open": open.contains(&entry.id),
-                })
-            })
-            .collect();
-        println!("{}", serde_json::to_string_pretty(&rows)?);
-        return Ok(());
-    }
     if entries.is_empty() {
         println!("the gallery is empty; add a pet with: familiard add <folder>");
     }
@@ -416,6 +506,9 @@ fn dispatch(mut args: Vec<String>) -> Result<(), Failure> {
         "remove" => remove(args),
         "default" => set_default(args),
         "run" => run(args),
+        "native-host" => native_host::run(),
+        "browser" => browser::run(args),
+        other if native_host::called_by_browser(other, &args) => native_host::run(),
         other => Err(format!("unknown command {other}\n{USAGE}").into()),
     }
 }

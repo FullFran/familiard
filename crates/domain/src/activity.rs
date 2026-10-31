@@ -75,6 +75,11 @@ impl Activity {
         Self { interest: Interest::Folder(folder.into()), ..Self::default() }
     }
 
+    /// Hears only this exact session, for something with no folder to match on.
+    pub fn following_session(session: impl Into<String>) -> Self {
+        Self { interest: Interest::Session(session.into()), ..Self::default() }
+    }
+
     fn cares_about(&mut self, report: &Report) -> bool {
         match &self.interest {
             Interest::Everything => true,
@@ -317,6 +322,19 @@ mod tests {
         assert_eq!(pet.mood(), Mood::Idle);
         pet.record(report("mine", Signal::Working));
         assert_eq!(pet.mood(), Mood::Working);
+    }
+
+    #[test]
+    fn a_pet_bound_to_a_session_hears_it_alone_and_finishes_with_it() {
+        let mut pet = Activity::following_session("chatgpt:a");
+        pet.record(report("chatgpt:b", Signal::Working));
+        pet.record(report("chatgpt:b", Signal::Ended));
+        assert_eq!(pet.mood(), Mood::Idle);
+        assert!(!pet.finished());
+        pet.record(report("chatgpt:a", Signal::Working));
+        assert_eq!(pet.mood(), Mood::Working);
+        pet.record(report("chatgpt:a", Signal::Ended));
+        assert!(pet.finished());
     }
 
     #[test]

@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <p id="message" role="status" hidden></p>
+
+    <form id="bring" hidden>
+      <label>
+        <span data-i18n="petLabel"></span>
+        <select id="pet" required></select>
+      </label>
+      <label>
+        <span data-i18n="nameLabel"></span>
+        <input id="name" type="text" maxlength="256" autocomplete="off" />
+      </label>
+      <button id="bring-button" type="submit" data-i18n="bringButton"></button>
+    </form>
+
+    <div id="bound" hidden>
+      <p id="bound-text"></p>
+      <button id="dismiss-button" type="button" data-i18n="dismissButton"></button>
+    </div>
+
+    <script src="../src/session.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>

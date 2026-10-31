@@ -6,7 +6,7 @@ use std::path::Path;
 fn the_skill_references_match_the_docs() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
     let read = |path: String| fs::read_to_string(root.join(path)).unwrap().replace("\r\n", "\n");
-    for doc in ["pets.md", "agents.md"] {
+    for doc in ["pets.md", "agents.md", "browser.md"] {
         assert_eq!(
             read(format!("docs/{doc}")),
             read(format!("skills/familiard-setup/references/{doc}")),

@@ -92,6 +92,14 @@ in its folder. The next session that reports from there claims the pet, its capt
 `folder · working`, `folder · needs you` or `folder · done`, and the pet leaves when that session
 ends.
 
+## A pet for a ChatGPT conversation
+
+ChatGPT on the web has no hooks, so there is a small extension for Firefox, Zen, Chromium, Chrome
+and Brave. On a conversation, press its button to bring a pet from your gallery, named after that
+conversation; no pet appears unless you do. It only looks at the stop button, never at your
+messages, and makes no network requests. OpenAI does not support this, so it may break, and it has
+not been tested on the real site yet. See [docs/browser.md](docs/browser.md).
+
 ## Architecture
 
 Hexagonal: the domain depends on nothing, and displays, pet formats and activity sources are

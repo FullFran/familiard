@@ -95,6 +95,12 @@ impl Player {
         self
     }
 
+    /// Follows only this exact session, and leaves when it ends.
+    pub fn following_session(mut self, session: impl Into<String>) -> Self {
+        self.activity = Activity::following_session(session);
+        self
+    }
+
     /// Shows `label` and the pet's state above its head. The captioner is only needed here:
     /// every caption this pet can show is drawn now, so a stage never waits for a font and
     /// the font does not stay in memory. The box also grows here, once, to hold the widest

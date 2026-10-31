@@ -1,0 +1,32 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_extensionName__",
+  "description": "__MSG_extensionDescription__",
+  "version": "0.1.0",
+  "default_locale": "en",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAv2U22Y9rwV2PxEQSt1cUIDU2x+QqRBm8D0dCNZ40Sl2/HNCTp/3MSGVA6MZqCnONsU4Zv+D3P9lOJ46Eauxd2v37IPDUT+jDAsc5ofGrMJ38TyDjhRqrdg5BmYLUA6l1rWgFuq7JLzKy95uhbXpk0GiaO1FEPATHW8gOW6ga3j3xfuQrubmHO1fE90RLfwzMz6Q4zrvLHr6c7Rn0tLcr6rKb+ASGKBYMNLvHHz8V2q0awv/CvdborEAd/gXo5qkH0vr4zMznjMAzQ2khXENMQNEOhyZmKphltF/ODNLCe8Lq87GICZAJdrfk1dtc4SVYeknkr4uOnF15+csTDDDLYQIDAQAB",
+  "minimum_chrome_version": "121",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "familiard@fullfran.github.io",
+      "strict_min_version": "121.0"
+    }
+  },
+  "permissions": ["nativeMessaging", "storage"],
+  "host_permissions": ["https://chatgpt.com/*"],
+  "action": {
+    "default_popup": "popup/popup.html",
+    "default_title": "__MSG_extensionName__"
+  },
+  "background": {
+    "service_worker": "src/background.js",
+    "scripts": ["src/session.js", "src/hub.js", "src/background.js"]
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://chatgpt.com/*"],
+      "js": ["src/session.js", "src/detect.js", "src/watcher.js", "src/content.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
