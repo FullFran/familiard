@@ -80,6 +80,7 @@ impl Stage for WaylandStage {
             pool,
             layer,
             pointer: None,
+            output: None,
             buffer: None,
             player,
             box_size: (width, height),
@@ -125,6 +126,7 @@ struct Theatre {
     pool: SlotPool,
     layer: LayerSurface,
     pointer: Option<wl_pointer::WlPointer>,
+    output: Option<wl_output::WlOutput>,
     buffer: Option<Buffer>,
     player: Player,
     box_size: (u32, u32),
@@ -173,11 +175,21 @@ impl Theatre {
     }
 
     fn drag_by(&mut self, dx: f64, dy: f64) {
-        self.position.0 = (self.position.0 + dx.round() as i32).max(0);
-        self.position.1 = (self.position.1 + dy.round() as i32).max(0);
+        let wanted = (self.position.0 + dx.round() as i32, self.position.1 + dy.round() as i32);
+        let screen = self.output.as_ref().and_then(|output| self.outputs.info(output)?.logical_size);
+        self.position = keep_on_screen(wanted, self.box_size, screen);
         self.layer.set_margin(self.position.1, 0, 0, self.position.0);
         self.layer.commit();
     }
+}
+
+/// A surface belongs to one output, and past its edges it simply stops being visible.
+fn keep_on_screen(wanted: (i32, i32), box_size: (u32, u32), screen: Option<(i32, i32)>) -> (i32, i32) {
+    let (screen_width, screen_height) = screen.unwrap_or((i32::MAX, i32::MAX));
+    (
+        wanted.0.min(screen_width.saturating_sub(box_size.0 as i32)).max(0),
+        wanted.1.min(screen_height.saturating_sub(box_size.1 as i32)).max(0),
+    )
 }
 
 /// Clears the canvas and paints the sprite bottom-centered as premultiplied ARGB, the
@@ -202,7 +214,9 @@ impl CompositorHandler for Theatre {
     fn scale_factor_changed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: i32) {}
     fn transform_changed(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: wl_output::Transform) {}
     fn frame(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: u32) {}
-    fn surface_enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: &wl_output::WlOutput) {}
+    fn surface_enter(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, output: &wl_output::WlOutput) {
+        self.output = Some(output.clone());
+    }
     fn surface_leave(&mut self, _: &Connection, _: &QueueHandle<Self>, _: &wl_surface::WlSurface, _: &wl_output::WlOutput) {}
 }
 
@@ -288,6 +302,19 @@ delegate_dispatch2!(Theatre);
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dragging_stops_at_the_edges_of_the_screen() {
+        let screen = Some((1920, 1080));
+        assert_eq!(keep_on_screen((5000, 5000), (120, 180), screen), (1800, 900));
+        assert_eq!(keep_on_screen((-30, -30), (120, 180), screen), (0, 0));
+        assert_eq!(keep_on_screen((500, 300), (120, 180), screen), (500, 300));
+    }
+
+    #[test]
+    fn an_unknown_screen_only_limits_the_top_left() {
+        assert_eq!(keep_on_screen((5000, -1), (120, 180), None), (5000, 0));
+    }
 
     #[test]
     fn paints_premultiplied_bgra_at_the_bottom_center() {
