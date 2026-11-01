@@ -126,7 +126,8 @@ can no longer be seen. Come back while it is still answering and the pet picks i
 
 chatgpt.com has been seen with no `data-testid` on this button, only an `aria-label` in the page's
 language: `Detener` in Spanish, which is the one checked on the real site. `Stop` for English is
-expected but unchecked, and other languages have no entry, so the pet stays quiet until yours is added.
+expected but unchecked, and other languages have no entry. In those the sidebar still drives the pet
+while it is open, and with it closed the pet stays quiet until your language is added.
 
 ## The pieces
 
