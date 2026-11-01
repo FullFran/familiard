@@ -28,7 +28,9 @@
         attributeExists = attributeExists || doc.querySelector(INDICATOR) !== null;
         if (!attributeExists) return null;
         const row = doc.querySelector(`a[href$="/c/${conversation}"]`)?.closest(ROW);
-        return row ? row.querySelector(WORKING) !== null : null;
+        // A closed sidebar keeps its rows in the page, frozen in their last state and with no box.
+        if (!row || row.getClientRects().length === 0) return null;
+        return row.querySelector(WORKING) !== null;
       },
     };
   }

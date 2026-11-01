@@ -9,9 +9,11 @@ const { createWatcher } = require("../src/watcher.js");
  * and, only while there is news, a node with the indicator.
  * rows maps a conversation to "working", "unread" or null.
  */
-function page(rows, { keyed = true, stop = false } = {}) {
+function page(rows, options = {}) {
+  const { keyed = true, stop = false } = options;
   const indicatorOf = (state) => (state ? { state } : null);
   const row = (conversation) => ({
+    getClientRects: () => (options.closed ? [] : [{}]),
     querySelector: (selector) => {
       assert.equal(selector, '[data-sidebar-indicator="working"]');
       return rows[conversation] === "working" ? indicatorOf("working") : null;
@@ -100,6 +102,22 @@ test("a row of an older sidebar, with no key, says nothing", () => {
   assert.equal(reader.isBusy("a"), null);
 });
 
+test("with the sidebar closed a row keeps its last state, which says nothing", () => {
+  // Seen on the real page: closing it hides the rows with their state frozen, until it reopens.
+  const rows = { a: "working" };
+  const options = {};
+  const { sent, watcher, reader } = watch(page(rows, options));
+  watcher.tick();
+  options.closed = true;
+  assert.equal(reader.isBusy("a"), null);
+  rows.a = null;
+  watcher.tick();
+  assert.deepEqual(sent, ["a:working"], "out of sight it cannot be known to have finished");
+  options.closed = false;
+  watcher.tick();
+  assert.deepEqual(sent, ["a:working", "a:done"], "reopening tells");
+});
+
 test("a conversation without a pet does not even have its row looked at", () => {
   const doc = page({ a: "working", b: "working" });
   const { sent, watcher } = watch(doc, { conversations: ["a"] });
@@ -171,6 +189,19 @@ test("without a readable row the open conversation still goes by its stop button
   const { sent, watcher } = open(doc, shown);
   watcher.tick();
   assert.deepEqual(sent, ["a:visit", "a:working"]);
+});
+
+test("with the sidebar closed the open conversation goes by its stop button", () => {
+  const rows = { a: "working", b: null };
+  const doc = page(rows, { closed: true, stop: true });
+  const shown = { current: "a" };
+  const { sent, watcher } = open(doc, shown);
+  watcher.tick();
+  assert.deepEqual(sent, ["a:visit", "a:working"]);
+  const done = page(rows, { closed: true, stop: false });
+  doc.querySelector = done.querySelector.bind(done);
+  watcher.tick();
+  assert.deepEqual(sent, ["a:visit", "a:working", "a:done"], "even though the frozen row says working");
 });
 
 test("leaving a generating conversation the sidebar can see does not stop it working", () => {
