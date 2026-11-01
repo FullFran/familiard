@@ -1,90 +1,115 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { BUSY_SELECTORS, isBusy, createSidebarWatcher } = require("../src/sidebar.js");
+const { createRowReader, createSidebarWatcher } = require("../src/sidebar.js");
+const { createWatcher } = require("../src/watcher.js");
 
-const SPINNER = ".spinner";
-
-/** A page of rows, each one with or without a spinner, in either sidebar. */
-function sidebar(rows, keyed = true) {
+/**
+ * The real row, reduced: a keyed list item whose key is not the conversation id, holding a link
+ * and, only while there is news, a node with the indicator.
+ * rows maps a conversation to "working", "unread" or null.
+ */
+function page(rows, { keyed = true, stop = false } = {}) {
+  const indicatorOf = (state) => (state ? { state } : null);
   const row = (conversation) => ({
-    querySelector: (selector) => (selector === SPINNER && rows[conversation] ? {} : null),
+    querySelector: (selector) => {
+      assert.equal(selector, '[data-sidebar-indicator="working"]');
+      return rows[conversation] === "working" ? indicatorOf("working") : null;
+    },
   });
   return {
     asked: [],
     querySelector(selector) {
       this.asked.push(selector);
-      const match = keyed
-        ? /^\[data-sidebar-chatgpt-conversation-key="(.+)"\]$/.exec(selector)
-        : /^a\[href="\/c\/(.+)"\]$/.exec(selector);
-      if (!match || !(match[1] in rows)) return null;
-      return keyed ? row(match[1]) : { parentElement: row(match[1]) };
+      if (selector === "[data-sidebar-indicator]") {
+        return Object.values(rows).some(Boolean) ? {} : null;
+      }
+      if (selector.includes("stop") || selector.includes("Stop") || selector.includes("Detener")) {
+        return stop ? { hasAttribute: () => false } : null;
+      }
+      const match = /^a\[href\$="\/c\/(.+)"\]$/.exec(selector);
+      assert.ok(match, `unexpected selector ${selector}`);
+      if (!(match[1] in rows)) return null;
+      return {
+        closest: (wanted) => {
+          assert.equal(wanted, "[data-sidebar-chatgpt-conversation-key]");
+          return keyed ? row(match[1]) : null;
+        },
+      };
     },
   };
 }
 
 function watch(doc, { conversations = ["a"], open = "other" } = {}) {
   const sent = [];
+  const reader = createRowReader(doc);
   const watcher = createSidebarWatcher({
-    doc,
+    isBusy: reader.isBusy,
     conversations: () => conversations,
     open: () => open,
     emit: (conversation, signal) => sent.push(`${conversation}:${signal}`),
-    selectors: [SPINNER],
   });
-  return { sent, watcher };
+  return { sent, watcher, reader };
 }
 
-test("with no selectors known it looks at nothing and says nothing", () => {
-  assert.deepEqual(BUSY_SELECTORS, [], "the table stays empty until it is seen on the real page");
-  const doc = sidebar({ a: true });
-  assert.equal(isBusy(doc, "a"), null);
-  assert.deepEqual(doc.asked, []);
+test("the real sequence: working, then the unread dot, is done once", () => {
+  const rows = { a: null };
+  const { sent, watcher } = watch(page(rows));
+  watcher.tick();
+  assert.deepEqual(sent, [], "never having been busy says nothing");
+  rows.a = "working";
+  watcher.tick();
+  watcher.tick();
+  assert.deepEqual(sent, ["a:working"]);
+  rows.a = "unread";
+  watcher.tick();
+  rows.a = null;
+  watcher.tick();
+  assert.deepEqual(sent, ["a:working", "a:done"]);
 });
 
-for (const keyed of [true, false]) {
-  const kind = keyed ? "keyed rows" : "link rows";
+test("a row that disappears is unknown, not finished", () => {
+  const rows = { a: "working" };
+  const { sent, watcher } = watch(page(rows));
+  watcher.tick();
+  delete rows.a;
+  rows.other = "working";
+  watcher.tick();
+  assert.deepEqual(sent, ["a:working"]);
+  rows.a = "working";
+  watcher.tick();
+  assert.deepEqual(sent, ["a:working"], "back and still busy changes nothing");
+  rows.a = null;
+  watcher.tick();
+  assert.deepEqual(sent, ["a:working", "a:done"]);
+});
 
-  test(`${kind}: a conversation out of sight goes from working to done`, () => {
-    const rows = { a: false };
-    const { sent, watcher } = watch(sidebar(rows, keyed));
-    watcher.tick();
-    assert.deepEqual(sent, [], "never having been busy says nothing");
-    rows.a = true;
-    watcher.tick();
-    watcher.tick();
-    assert.deepEqual(sent, ["a:working"]);
-    rows.a = false;
-    watcher.tick();
-    assert.deepEqual(sent, ["a:working", "a:done"]);
-  });
+test("until the page has shown the attribute, an idle row says nothing", () => {
+  const rows = { a: null };
+  const { reader } = watch(page(rows));
+  assert.equal(reader.isBusy("a"), null, "this could be a page where the attribute was renamed");
+  rows.a = "working";
+  assert.equal(reader.isBusy("a"), true);
+  rows.a = null;
+  assert.equal(reader.isBusy("a"), false, "once seen, its absence means idle");
+});
 
-  test(`${kind}: a row that disappears is unknown, not finished`, () => {
-    const rows = { a: true };
-    const { sent, watcher } = watch(sidebar(rows, keyed));
-    watcher.tick();
-    delete rows.a;
-    watcher.tick();
-    assert.deepEqual(sent, ["a:working"]);
-    rows.a = true;
-    watcher.tick();
-    assert.deepEqual(sent, ["a:working"], "back and still busy changes nothing");
-    rows.a = false;
-    watcher.tick();
-    assert.deepEqual(sent, ["a:working", "a:done"]);
-  });
-}
+test("a row of an older sidebar, with no key, says nothing", () => {
+  const rows = { a: "working" };
+  const { reader } = watch(page(rows, { keyed: false }));
+  assert.equal(reader.isBusy("a"), null);
+});
 
 test("a conversation without a pet does not even have its row looked at", () => {
-  const doc = sidebar({ a: true, b: true });
+  const doc = page({ a: "working", b: "working" });
   const { sent, watcher } = watch(doc, { conversations: ["a"] });
   watcher.tick();
   assert.deepEqual(sent, ["a:working"]);
-  assert.ok(doc.asked.every((selector) => !selector.includes('"b"') && !selector.includes("/c/b")));
+  assert.ok(doc.asked.every((selector) => !selector.includes("/c/b")));
 });
 
-test("the conversation on screen is left to its stop button", () => {
-  const doc = sidebar({ a: true });
+test("the conversation on screen is left to its own watcher", () => {
+  const doc = page({ a: "working" });
   const { sent, watcher } = watch(doc, { open: "a" });
   watcher.tick();
   assert.deepEqual(sent, []);
@@ -92,16 +117,77 @@ test("the conversation on screen is left to its stop button", () => {
 });
 
 test("several conversations are followed apart", () => {
-  const rows = { a: true, b: false };
-  const { sent, watcher } = watch(sidebar(rows), { conversations: ["a", "b"] });
+  const rows = { a: "working", b: null };
+  const { sent, watcher } = watch(page(rows), { conversations: ["a", "b"] });
   watcher.tick();
-  rows.b = true;
-  rows.a = false;
+  rows.b = "working";
+  rows.a = "unread";
   watcher.tick();
   assert.deepEqual(sent, ["a:working", "a:done", "b:working"]);
 });
 
-test("a selector the browser refuses is no signal", () => {
-  const doc = { querySelector: () => ({ querySelector: () => { throw new Error("bad selector"); } }) };
-  assert.equal(isBusy(doc, "a", ["::bad"]), false);
+/** The watcher of the open conversation, with the row reader as content.js wires it. */
+function open(doc, shown, bound = ["a", "b"]) {
+  const sent = [];
+  const reader = createRowReader(doc);
+  const watcher = createWatcher({
+    doc,
+    path: () => `/c/${shown.current}`,
+    isBound: (conversation) => bound.includes(conversation),
+    rowSays: reader.isBusy,
+    emit: (conversation, signal) => sent.push(`${conversation}:${signal}`),
+  });
+  return { sent, watcher };
+}
+
+test("a stop button left over from another conversation does not make this one work", () => {
+  // Seen on the real page: after moving from a generating A to an idle B, the stop button stayed
+  // in B for as long as B was open, even a minute after A had finished.
+  const rows = { a: "working", b: null };
+  const doc = page(rows, { stop: true });
+  const shown = { current: "b" };
+  const { sent, watcher } = open(doc, shown);
+  watcher.tick();
+  rows.a = "unread";
+  watcher.tick();
+  assert.deepEqual(sent, ["b:visit"]);
+});
+
+test("the row of the open conversation drives it from working to done", () => {
+  const rows = { a: "working", b: null };
+  const doc = page(rows);
+  const shown = { current: "a" };
+  const { sent, watcher } = open(doc, shown);
+  watcher.tick();
+  rows.a = null;
+  rows.b = "working";
+  watcher.tick();
+  assert.deepEqual(sent, ["a:visit", "a:working", "a:done"]);
+});
+
+test("without a readable row the open conversation still goes by its stop button", () => {
+  const doc = page({}, { stop: true });
+  const shown = { current: "a" };
+  const { sent, watcher } = open(doc, shown);
+  watcher.tick();
+  assert.deepEqual(sent, ["a:visit", "a:working"]);
+});
+
+test("leaving a generating conversation the sidebar can see does not stop it working", () => {
+  const rows = { a: "working", b: null };
+  const shown = { current: "a" };
+  const { sent, watcher } = open(page(rows), shown);
+  watcher.tick();
+  shown.current = "b";
+  watcher.tick();
+  assert.deepEqual(sent, ["a:visit", "a:working", "b:visit"]);
+});
+
+test("leaving one the sidebar cannot see stops claiming it works", () => {
+  const shown = { current: "a" };
+  const { sent, watcher } = open(page({}, { stop: true }), shown);
+  watcher.tick();
+  shown.current = "b";
+  watcher.tick();
+  assert.equal(sent.includes("a:registered"), true);
 });

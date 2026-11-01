@@ -14,16 +14,17 @@
    * @param path gives the URL's path
    * @param isBound says whether the user brought a pet to a conversation
    * @param emit receives (conversation, "visit" | "working" | "done" | "registered")
-   * @param stillVisible says whether another source can still see a conversation being left
+   * @param rowSays reads a conversation's row: true, false, or null when it cannot say. It is
+   *   believed over the stop button, which can stay on screen after moving between conversations
    */
-  function createWatcher({ doc, path, isBound, emit, stillVisible = () => false }) {
+  function createWatcher({ doc, path, isBound, emit, rowSays = () => null }) {
     let current = null;
     let tracker = null;
 
     /** A conversation out of sight may still be answering, or may finish unseen, so nothing here
      *  can say. "registered" only stops claiming it works: never "done", which would celebrate. */
     function leave() {
-      if (current !== null && tracker.generating && !stillVisible(current)) emit(current, "registered");
+      if (current !== null && tracker.generating && rowSays(current) !== true) emit(current, "registered");
       current = null;
       tracker = null;
     }
@@ -46,7 +47,7 @@
           tracker = detect.createTracker();
           emit(conversation, "visit");
         }
-        const change = tracker.observe(detect.isGenerating(doc));
+        const change = tracker.observe(rowSays(conversation) ?? detect.isGenerating(doc));
         if (change) emit(conversation, change);
       },
     };

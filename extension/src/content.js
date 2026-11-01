@@ -5,23 +5,24 @@
   const api = globalThis.browser ?? globalThis.chrome;
   const { conversationFromPath, cleanTitle } = globalThis.FamiliardSession;
   const { createWatcher, throttle } = globalThis.FamiliardWatcher;
-  const { isBusy, createSidebarWatcher } = globalThis.FamiliardSidebar;
+  const { createRowReader, createSidebarWatcher } = globalThis.FamiliardSidebar;
   const THROTTLE_MS = 500;
-  // Attributes a stop button can come and go by. Deliberately not `characterData`.
-  const OBSERVED_ATTRIBUTES = ["data-testid", "aria-label", "hidden"];
+  // Attributes a stop button or a row's state can come and go by. Deliberately not `characterData`.
+  const OBSERVED_ATTRIBUTES = ["data-testid", "aria-label", "hidden", "data-sidebar-indicator"];
 
   let bound = {};
   const send = (message) => api.runtime.sendMessage(message).catch(() => {});
 
+  const rows = createRowReader(document);
   const watcher = createWatcher({
     doc: document,
     path: () => location.pathname,
     isBound: (conversation) => Object.hasOwn(bound, conversation),
-    stillVisible: (conversation) => isBusy(document, conversation) === true,
+    rowSays: rows.isBusy,
     emit: (conversation, signal) => send({ type: "report", conversation, signal }),
   });
   const sidebar = createSidebarWatcher({
-    doc: document,
+    isBusy: rows.isBusy,
     conversations: () => Object.keys(bound),
     open: () => conversationFromPath(location.pathname),
     emit: (conversation, signal) => send({ type: "report", conversation, signal }),

@@ -120,7 +120,7 @@ test("leaving mid-answer stays silent if the sidebar can still see that answer",
     doc,
     path: () => path,
     isBound: () => true,
-    stillVisible: (conversation) => conversation === MINE,
+    rowSays: (conversation) => (conversation === MINE ? true : null),
     emit: (conversation, signal) => sent.push(signal),
   });
   watcher.tick();
