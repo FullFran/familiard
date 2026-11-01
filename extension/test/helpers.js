@@ -7,12 +7,14 @@ const path = require("node:path");
 
 function parseElements(html) {
   const elements = [];
+  const forms = [...html.matchAll(/<form\b[^>]*>.*?<\/form>/gs)].map((form) => [form.index, form.index + form[0].length]);
   for (const match of html.matchAll(/<([a-z][a-z0-9]*)((?:\s+[a-zA-Z-]+(?:="[^"]*")?)*)\s*\/?>/g)) {
     const attributes = new Map();
     for (const attribute of match[2].matchAll(/([a-zA-Z-]+)(?:="([^"]*)")?/g)) {
       attributes.set(attribute[1], attribute[2] ?? "");
     }
-    elements.push({ tag: match[1], attributes, hasAttribute: (name) => attributes.has(name) });
+    const inForm = forms.some(([start, end]) => match.index > start && match.index < end);
+    elements.push({ tag: match[1], attributes, inForm, hasAttribute: (name) => attributes.has(name) });
   }
   return elements;
 }
@@ -21,10 +23,12 @@ function fakeDocument(html) {
   let elements = parseElements(html);
   return {
     querySelector(selector) {
-      const match = /^([a-z]*)\[([a-z-]+)="([^"]*)"\]$/.exec(selector);
+      const match = /^(form )?([a-z]*)\[([a-z-]+)="([^"]*)"\]$/.exec(selector);
       if (!match) throw new Error(`unsupported selector ${selector}`);
-      const [, tag, name, value] = match;
-      return elements.find((e) => (!tag || e.tag === tag) && e.attributes.get(name) === value) ?? null;
+      const [, form, tag, name, value] = match;
+      return (
+        elements.find((e) => (!form || e.inForm) && (!tag || e.tag === tag) && e.attributes.get(name) === value) ?? null
+      );
     },
     replace(next) {
       elements = parseElements(next);

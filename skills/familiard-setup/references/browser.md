@@ -103,12 +103,14 @@ extension treats a selector that matches nothing as no signal, so it goes quiet 
 1. In a conversation that is generating, open the developer tools and inspect the stop button.
 2. Note its `data-testid`, or else its `aria-label`.
 3. Add a line to `STOP_SELECTORS` in `extension/src/detect.js`. Selectors of the shapes
-   `[attribute="value"]` and `tag[attribute="value"]` are what the tests understand.
+   `[attribute="value"]`, `tag[attribute="value"]` and `form tag[attribute="value"]` are what the
+   tests understand.
 4. Add a button to the first test in `extension/test/detect.test.js`, and run `node --test` in `extension/`.
 5. Reload the extension.
 
-The `aria-label` entries are in English, so on a ChatGPT in another language only the `data-testid`
-entries match. Add yours to the table if those stop working.
+chatgpt.com has been seen with no `data-testid` on this button, only an `aria-label` in the page's
+language: `Detener` in Spanish, which is the one checked on the real site. `Stop` for English is
+expected but unchecked, and other languages have no entry, so the pet stays quiet until yours is added.
 
 ## The pieces
 

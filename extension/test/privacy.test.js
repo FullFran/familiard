@@ -76,7 +76,7 @@ test("the watcher looks at nothing but the stop button table", () => {
   const watcher = createWatcher({ doc, path: () => `/c/${MINE}`, isBound: () => true, emit: () => {} });
   watcher.tick();
   assert.deepEqual(asked, require("../src/detect.js").STOP_SELECTORS);
-  for (const selector of asked) assert.match(selector, /stop/i);
+  for (const selector of asked) assert.match(selector, /stop|detener/i);
 });
 
 test("a conversation without a pet does not even have its stop button looked at", () => {

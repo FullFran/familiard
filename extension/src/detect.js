@@ -11,6 +11,10 @@
     '[data-testid="fruitjuice-stop-button"]',
     'button[aria-label="Stop generating"]',
     'button[aria-label="Stop streaming"]',
+    // chatgpt.com has shown no test id here, only a label in the page's language, and words this
+    // short only count inside the composer. Spanish is verified on the real page; English is not.
+    'form button[aria-label="Stop"]',
+    'form button[aria-label="Detener"]',
   ];
 
   /** Whether a stop button is there. Looks at nothing else on the page. A selector that does

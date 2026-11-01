@@ -10,6 +10,8 @@ test("each selector in the table recognises its stop button", () => {
     '<button data-testid="fruitjuice-stop-button"></button>',
     '<button aria-label="Stop generating"></button>',
     '<button aria-label="Stop streaming"></button>',
+    '<form><button aria-label="Stop"></button></form>',
+    '<form><button aria-label="Detener"></button></form>',
   ];
   assert.equal(buttons.length, STOP_SELECTORS.length);
   for (const button of buttons) assert.equal(isGenerating(fakeDocument(page(button))), true, button);
@@ -47,4 +49,20 @@ test("never having seen a stop button says nothing, not even done", () => {
   const tracker = createTracker();
   assert.equal(tracker.observe(false), null);
   assert.equal(tracker.observe(false), null);
+});
+
+// As read from chatgpt.com in Spanish while it was answering: no test ids, only labels.
+const composer = (last) =>
+  `<form><button aria-label="Añadir archivos y más"></button><button aria-label="Seleccionar modelo de ChatGPT"></button><button aria-label="Dictar"></button>${last}</form>`;
+
+test("the real composer in Spanish counts as generating while it shows Detener", () => {
+  assert.equal(isGenerating(fakeDocument(composer('<button aria-label="Detener"></button>'))), true);
+});
+
+test("the real composer is not generating without it", () => {
+  assert.equal(isGenerating(fakeDocument(composer(""))), false);
+});
+
+test("a button called Detener outside the composer says nothing", () => {
+  assert.equal(isGenerating(fakeDocument('<button aria-label="Detener"></button>')), false);
 });
