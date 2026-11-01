@@ -6,11 +6,11 @@ mod petdex;
 use familiard_agents::{interpret, LocalFeed, Roster};
 use familiard_application::{summon, ActivityFeed, Failure, PetSource, Stage};
 use familiard_caption::FontCaptioner;
-use familiard_gallery::{home, Gallery};
+use familiard_gallery::{home, Entry, Gallery, GalleryError};
 use familiard_pack::PetPack;
 use familiard_stage_terminal::TerminalStage;
 use std::fs::{self, File};
-use std::io::Read;
+use std::io::{IsTerminal, Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::mpsc::channel;
@@ -22,13 +22,17 @@ const USAGE: &str = "usage:
                                    --here: follow the next session in this folder, leave when it ends
                                    --session: follow this exact session, leave when it ends
                                    --still: never walk around on its own
+                                   a name can be part of an id, an alias or a pet's name; the one used most wins
+  familiard pick [summon options]  choose a pet from a list, with fzf if you have it
   familiard dismiss, -d [id] | --all   send pets away (the default one if no id)
   familiard pets, -l [--json]      list the gallery and which pets are open
   familiard add <folder|petdex:NAME> [--as id]
                                    add a pet to the gallery, from a folder or from petdex.dev
   familiard search <text>          look for pets on petdex.dev
-  familiard remove <id>            remove a pet from the gallery
-  familiard default <id>           choose the default pet
+  familiard alias [<pet> <alias> | --remove <alias>]
+                                   give a pet another name, or list them
+  familiard remove <id>            remove a pet from the gallery (needs the whole id)
+  familiard default <id|alias>     choose the default pet
   familiard run --pet <dir> [--follow DIR | --session ID] [--still] [--name TEXT] [--stage desktop|terminal] [--rows N] [--frames N] [--at X,Y]
                                    run a pet in the foreground, without the gallery
   familiard hook --agent <name> [--event <event>] [--session <id>] [--project <dir>]
@@ -245,12 +249,14 @@ fn summon_pet(args: Vec<String>) -> Result<(), Failure> {
         (false, Some(session)) => Binding::Session(session),
         (false, None) => Binding::Everything,
     };
+    let gallery = Gallery::new(&home());
     let id = match id {
-        Some(id) => id,
-        None => Gallery::new(&home()).chosen()?,
+        Some(id) => gallery.find(&id)?,
+        None => gallery.chosen()?,
     };
     let plain = matches!(binding, Binding::Everything) && name.is_none() && !still;
     if bring_out(&id, at, &stage, &binding, name.as_deref(), still)? {
+        gallery.record_use(&id);
         println!("{id} is here");
     } else if plain {
         println!("{id} is already here");
@@ -388,7 +394,7 @@ fn dismiss(args: Vec<String>) -> Result<(), Failure> {
     let roster = roster();
     let targets = match args.first().map(String::as_str) {
         Some("--all") => roster.open(),
-        Some(id) => vec![id.to_string()],
+        Some(name) => vec![who_to_dismiss(name, &roster.open())?],
         None => vec![Gallery::new(&home()).chosen()?],
     };
     if targets.is_empty() {
@@ -402,6 +408,19 @@ fn dismiss(args: Vec<String>) -> Result<(), Failure> {
         }
     }
     Ok(())
+}
+
+/// Someone who is out by that very name, then a pet by its id or alias, and only then part of a
+/// name among those who are out, since nobody else could leave.
+fn who_to_dismiss(name: &str, open: &[String]) -> Result<String, Failure> {
+    if open.iter().any(|id| id == name) {
+        return Ok(name.to_string());
+    }
+    let gallery = Gallery::new(&home());
+    if let Ok(id) = gallery.exact(name) {
+        return Ok(id);
+    }
+    Ok(gallery.best_of(name, open)?.unwrap_or_else(|| name.to_string()))
 }
 
 /// The listing of `pets --json`, which the browser's picker also shows.
@@ -433,7 +452,96 @@ fn pets(args: Vec<String>) -> Result<(), Failure> {
     for entry in entries {
         let mark = if entry.is_default { "*" } else { " " };
         let state = if open.contains(&entry.id) { "  (open)" } else { "" };
-        println!("{mark} {}  {}{state}", entry.id, entry.name);
+        println!("{mark} {}{state}", described(&gallery, &entry));
+    }
+    Ok(())
+}
+
+/// A pet's id, its name, and any aliases it has.
+fn described(gallery: &Gallery, entry: &Entry) -> String {
+    let aliases = gallery.aliases_of(&entry.id);
+    let also = if aliases.is_empty() { String::new() } else { format!("  [{}]", aliases.join(", ")) };
+    format!("{}  {}{also}", entry.id, entry.name)
+}
+
+/// Lets a person choose a pet, and brings it out with the options given.
+fn pick(args: Vec<String>) -> Result<(), Failure> {
+    let gallery = Gallery::new(&home());
+    let entries = gallery.by_use();
+    if entries.is_empty() {
+        return Err(GalleryError::Empty.into());
+    }
+    let open = roster().open();
+    let lines: Vec<String> = entries
+        .iter()
+        .map(|entry| {
+            let state = if open.contains(&entry.id) { "  (open)" } else { "" };
+            format!("{}{state}", described(&gallery, entry))
+        })
+        .collect();
+    let chosen = match pick_with_fzf(&lines) {
+        Some(chosen) => chosen,
+        None => pick_from_numbers(&lines)?,
+    };
+    let Some(index) = chosen else {
+        println!("nothing chosen");
+        return Ok(());
+    };
+    let mut summon_args = vec![entries[index].id.clone()];
+    summon_args.extend(args);
+    summon_pet(summon_args)
+}
+
+/// None if fzf is not there to ask, or nobody is. Otherwise whichever line was chosen, if any.
+fn pick_with_fzf(lines: &[String]) -> Option<Option<usize>> {
+    if !std::io::stdin().is_terminal() {
+        return None;
+    }
+    let mut child = Command::new("fzf")
+        .args(["--no-sort", "--height=40%", "--reverse", "--prompt=pet> "])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .ok()?;
+    let mut stdin = child.stdin.take()?;
+    let _ = stdin.write_all(lines.join("\n").as_bytes());
+    drop(stdin);
+    let output = child.wait_with_output().ok()?;
+    let chosen = String::from_utf8_lossy(&output.stdout);
+    Some(lines.iter().position(|line| line == chosen.trim_end_matches(['\r', '\n'])))
+}
+
+fn pick_from_numbers(lines: &[String]) -> Result<Option<usize>, Failure> {
+    for (index, line) in lines.iter().enumerate() {
+        println!("{}) {line}", index + 1);
+    }
+    print!("which one? ");
+    std::io::stdout().flush()?;
+    let mut answer = String::new();
+    std::io::stdin().read_line(&mut answer)?;
+    println!();
+    let number = answer.trim().parse::<usize>().ok();
+    Ok(number.and_then(|number| number.checked_sub(1)).filter(|index| *index < lines.len()))
+}
+
+fn alias(args: Vec<String>) -> Result<(), Failure> {
+    let gallery = Gallery::new(&home());
+    match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+        [] => {
+            for (alias, id) in gallery.aliases() {
+                println!("{alias}  {id}");
+            }
+        }
+        ["--remove", alias] => {
+            gallery.remove_alias(alias)?;
+            println!("removed the alias {alias}");
+        }
+        [pet, alias] if !pet.starts_with('-') => {
+            let alias = alias.to_lowercase();
+            let id = gallery.add_alias(pet, &alias)?;
+            println!("{id} now also answers to {alias}");
+        }
+        _ => return Err(format!("alias needs a pet and its new name\n{USAGE}").into()),
     }
     Ok(())
 }
@@ -478,8 +586,9 @@ fn remove(args: Vec<String>) -> Result<(), Failure> {
 }
 
 fn set_default(args: Vec<String>) -> Result<(), Failure> {
-    let id = one_id(args, "default")?;
-    Gallery::new(&home()).set_default(&id)?;
+    let gallery = Gallery::new(&home());
+    let id = gallery.exact(&one_id(args, "default")?)?;
+    gallery.set_default(&id)?;
     println!("{id} is now the default pet");
     Ok(())
 }
@@ -533,6 +642,8 @@ fn dispatch(mut args: Vec<String>) -> Result<(), Failure> {
         "summon" | "-s" => summon_pet(args),
         "dismiss" | "-d" => dismiss(args),
         "pets" | "-l" => pets(args),
+        "pick" => pick(args),
+        "alias" => alias(args),
         "add" => add(args),
         "search" => petdex::search(args),
         "remove" => remove(args),

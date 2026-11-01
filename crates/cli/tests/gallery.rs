@@ -352,3 +352,194 @@ fn still_is_accepted_by_summon_and_run_and_explained_in_the_help() {
     home.ok(&["run", "--pet", demo, "--still", "--stage", "terminal", "--rows", "4", "--frames", "1"]);
     assert!(home.ok(&["--help"]).contains("--still: never walk around on its own"));
 }
+
+/// Brings a pet out and sends it away, which is what teaches familiard that it gets used.
+fn use_pet(home: &Home, id: &str) {
+    assert_eq!(home.ok(&["summon", id, "--stage", "terminal"]), format!("{id} is here\n"));
+    home.ok(&["dismiss", id]);
+    home.wait_until_closed(id);
+}
+
+fn three_elainas(home: &Home) {
+    for id in ["elaina-2", "elaina-5", "kurisu"] {
+        home.ok(&["add", &demo(), "--as", id]);
+    }
+}
+
+#[test]
+fn part_of_a_name_summons_the_pet_it_can_only_be() {
+    let home = Home::new();
+    three_elainas(&home);
+    assert_eq!(home.ok(&["summon", "kur", "--stage", "terminal"]), "kurisu is here\n");
+    assert_eq!(home.ok(&["dismiss", "kur"]), "kurisu has left\n");
+}
+
+#[test]
+fn a_name_that_fits_several_new_pets_says_which_instead_of_guessing() {
+    let home = Home::new();
+    three_elainas(&home);
+    let error = home.fails(&["summon", "ela", "--stage", "terminal"]);
+    assert!(error.contains("'ela' could be elaina-2 or elaina-5"), "{error}");
+    assert!(error.contains("familiard pick"), "{error}");
+    assert!(!home.is_open("elaina-2") && !home.is_open("elaina-5"));
+}
+
+#[test]
+fn among_several_the_one_used_most_wins() {
+    let home = Home::new();
+    three_elainas(&home);
+    use_pet(&home, "elaina-5");
+    assert_eq!(home.ok(&["summon", "ela", "--stage", "terminal"]), "elaina-5 is here\n");
+    home.ok(&["dismiss", "ela"]);
+    home.wait_until_closed("elaina-5");
+    for _ in 0..3 {
+        use_pet(&home, "elaina-2");
+    }
+    assert_eq!(home.ok(&["summon", "ela", "--stage", "terminal"]), "elaina-2 is here\n");
+}
+
+#[test]
+fn an_exact_id_always_wins_over_what_gets_used_most() {
+    let home = Home::new();
+    home.ok(&["add", &demo(), "--as", "eli"]);
+    home.ok(&["add", &demo(), "--as", "elina"]);
+    use_pet(&home, "elina");
+    use_pet(&home, "elina");
+    assert_eq!(home.ok(&["summon", "eli", "--stage", "terminal"]), "eli is here\n");
+}
+
+#[test]
+fn what_matches_nothing_fails_as_it_always_did() {
+    let home = Home::new();
+    three_elainas(&home);
+    let error = home.fails(&["summon", "nadie", "--stage", "terminal"]);
+    assert!(error.contains("no pet 'nadie' in the gallery"), "{error}");
+    assert_eq!(home.ok(&["dismiss", "nadie"]), "nadie was not here\n");
+    assert!(home.fails(&["summon", "", "--stage", "terminal"]).contains("no pet ''"));
+}
+
+#[test]
+fn dismissing_by_part_of_a_name_only_looks_at_who_is_out() {
+    let home = Home::new();
+    three_elainas(&home);
+    assert_eq!(home.ok(&["dismiss", "ela"]), "ela was not here\n", "nobody is out, nothing to guess");
+    home.ok(&["summon", "elaina-5", "--stage", "terminal"]);
+    assert_eq!(home.ok(&["dismiss", "ela"]), "elaina-5 has left\n", "only one of them is out");
+    home.wait_until_closed("elaina-5");
+    assert!(home.ok(&["pets"]).contains("elaina-2"), "and nothing else happened to the gallery");
+}
+
+#[test]
+fn removing_needs_the_whole_id_because_it_cannot_be_undone() {
+    let home = Home::new();
+    three_elainas(&home);
+    assert!(home.fails(&["remove", "kur"]).contains("no pet 'kur'"));
+    home.ok(&["alias", "kurisu", "kuri"]);
+    assert!(home.fails(&["remove", "kuri"]).contains("no pet 'kuri'"));
+    assert!(home.ok(&["pets"]).contains("kurisu"));
+}
+
+#[test]
+fn an_alias_works_wherever_a_pet_is_named() {
+    let home = Home::new();
+    three_elainas(&home);
+    assert_eq!(home.ok(&["alias", "elaina-5", "eli"]), "elaina-5 now also answers to eli\n");
+    home.ok(&["alias", "eli", "fav"]);
+    assert_eq!(home.ok(&["alias"]), "eli  elaina-5\nfav  elaina-5\n");
+    assert!(home.ok(&["pets"]).contains("elaina-5  Demo  [eli, fav]\n"), "{}", home.ok(&["pets"]));
+
+    assert_eq!(home.ok(&["summon", "eli", "--stage", "terminal"]), "elaina-5 is here\n");
+    assert_eq!(home.ok(&["dismiss", "fav"]), "elaina-5 has left\n");
+    home.wait_until_closed("elaina-5");
+    assert_eq!(home.ok(&["default", "eli"]), "elaina-5 is now the default pet\n");
+
+    assert_eq!(home.ok(&["alias", "--remove", "eli"]), "removed the alias eli\n");
+    assert_eq!(home.ok(&["alias"]), "fav  elaina-5\n");
+    assert!(home.fails(&["alias", "--remove", "eli"]).contains("no alias 'eli'"));
+}
+
+#[test]
+fn an_alias_cannot_hide_another_pet_or_be_a_bad_name() {
+    let home = Home::new();
+    three_elainas(&home);
+    home.ok(&["alias", "elaina-5", "eli"]);
+    assert_eq!(home.ok(&["alias", "elaina-5", "eli"]), "elaina-5 now also answers to eli\n");
+    assert!(home.fails(&["alias", "kurisu", "eli"]).contains("'eli' already means elaina-5"));
+    assert!(home.fails(&["alias", "kurisu", "elaina-2"]).contains("'elaina-2' is already a pet"));
+    assert!(home.fails(&["alias", "kurisu", "../mal"]).contains("invalid"));
+    assert!(home.fails(&["alias", "nadie", "x"]).contains("no pet 'nadie'"));
+    assert!(home.fails(&["alias", "kurisu"]).contains("alias needs"));
+}
+
+#[test]
+fn removing_a_pet_forgets_its_aliases_and_its_uses() {
+    let home = Home::new();
+    three_elainas(&home);
+    home.ok(&["alias", "elaina-5", "eli"]);
+    use_pet(&home, "elaina-5");
+    home.ok(&["remove", "elaina-5"]);
+    assert_eq!(home.ok(&["alias"]), "");
+    home.ok(&["add", &demo(), "--as", "elaina-5"]);
+    assert!(home.fails(&["summon", "ela", "--stage", "terminal"]).contains("could be"), "starts with no history");
+}
+
+#[test]
+fn damaged_memory_only_loses_the_memory() {
+    let home = Home::new();
+    three_elainas(&home);
+    std::fs::write(home.0.join("uses.json"), "{ not json").unwrap();
+    std::fs::write(home.0.join("aliases.json"), "[1, 2").unwrap();
+    assert_eq!(home.ok(&["summon", "kur", "--stage", "terminal"]), "kurisu is here\n");
+    assert_eq!(home.ok(&["alias"]), "");
+}
+
+/// `pick` with no fzf to be found, answering its numbered list.
+fn pick(home: &Home, answer: &str, extra: &[&str]) -> Output {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_familiard"))
+        .arg("pick")
+        .args(extra)
+        .env("FAMILIARD_HOME", &home.0)
+        .env("PATH", "")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(answer.as_bytes()).unwrap();
+    child.wait_with_output().unwrap()
+}
+
+#[test]
+fn pick_lists_the_most_used_first_and_summons_the_choice() {
+    let home = Home::new();
+    three_elainas(&home);
+    home.ok(&["alias", "kurisu", "kuri"]);
+    use_pet(&home, "kurisu");
+    let output = pick(&home, "1\n", &["--stage", "terminal"]);
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let shown = String::from_utf8(output.stdout).unwrap();
+    assert!(shown.starts_with("1) kurisu  Demo  [kuri]\n2) elaina-2  Demo\n3) elaina-5  Demo\n"), "{shown}");
+    assert!(shown.ends_with("kurisu is here\n"), "{shown}");
+}
+
+#[test]
+fn pick_can_be_left_without_choosing() {
+    let home = Home::new();
+    three_elainas(&home);
+    for answer in ["\n", "", "9\n", "nada\n"] {
+        let output = pick(&home, answer, &["--stage", "terminal"]);
+        assert!(output.status.success(), "{answer:?}");
+        assert!(String::from_utf8(output.stdout).unwrap().ends_with("nothing chosen\n"), "{answer:?}");
+    }
+    assert!(!home.is_open("elaina-2") && !home.is_open("kurisu"));
+}
+
+#[test]
+fn pick_on_an_empty_gallery_says_so() {
+    let home = Home::new();
+    let output = pick(&home, "", &[]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8(output.stderr).unwrap().contains("gallery is empty"));
+}

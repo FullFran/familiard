@@ -5,6 +5,8 @@ use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+mod names;
+
 const DEFAULT_FILE: &str = "default";
 
 /// Where familiard keeps its data: `FAMILIARD_HOME`, or the usual place on each system.
@@ -29,6 +31,10 @@ pub enum GalleryError {
     AlreadyThere(String),
     NotThere(String),
     Empty,
+    Ambiguous(String, Vec<String>),
+    AliasIsAPet(String),
+    AliasTaken(String, String),
+    NoAlias(String),
     Io(String),
 }
 
@@ -41,6 +47,13 @@ impl fmt::Display for GalleryError {
             GalleryError::AlreadyThere(id) => write!(f, "'{id}' is already in the gallery; remove it first"),
             GalleryError::NotThere(id) => write!(f, "no pet '{id}' in the gallery; see: familiard pets"),
             GalleryError::Empty => write!(f, "the gallery is empty; add a pet with: familiard add <folder>"),
+            GalleryError::Ambiguous(name, ids) => {
+                let (last, rest) = ids.split_last().map_or(("", &[][..]), |(last, rest)| (last.as_str(), rest));
+                write!(f, "'{name}' could be {} or {last}; name one, or choose with: familiard pick", rest.join(", "))
+            }
+            GalleryError::AliasIsAPet(alias) => write!(f, "'{alias}' is already a pet's id"),
+            GalleryError::AliasTaken(alias, id) => write!(f, "'{alias}' already means {id}"),
+            GalleryError::NoAlias(alias) => write!(f, "no alias '{alias}'"),
             GalleryError::Io(message) => write!(f, "{message}"),
         }
     }
@@ -159,6 +172,7 @@ impl Gallery {
         let folder = self.folder(id)?;
         let was_default = self.default_id().as_deref() == Some(id);
         fs::remove_dir_all(&folder).map_err(io(&folder))?;
+        self.forget(id);
         if was_default {
             let _ = fs::remove_file(self.default_file());
             if let Some(next) = self.list().first() {

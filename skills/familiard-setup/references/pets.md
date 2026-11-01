@@ -16,15 +16,29 @@ familiard summon mine
 | `familiard search <text>` | Looks for pets on Petdex |
 | `familiard pets [--json]`, `-l` | Lists the gallery: `*` marks the default, `(open)` what is out |
 | `familiard summon [id] [--here \| --session ID] [--still] [--name TEXT] [--at X,Y]`, `-s` | Brings out a pet, the default if none is named |
+| `familiard pick [summon options]` | Chooses a pet from a list, most used first, with [fzf](https://github.com/junegunn/fzf) if you have it and numbers otherwise |
 | `familiard dismiss [id]`, `--all`, `-d` | Sends pets away |
-| `familiard default <id>` | Chooses the default |
-| `familiard remove <id>` | Deletes a pet from the gallery, and sends it away if it is out |
+| `familiard alias [<pet> <alias> \| --remove <alias>]` | Gives a pet another name, or lists them. An alias cannot be another pet's id |
+| `familiard default <id>` | Chooses the default. An alias works too |
+| `familiard remove <id>` | Deletes a pet from the gallery, and sends it away if it is out. It needs the whole id |
 
 Each open pet is its own small process, and each reacts to your agents as described in
 [A pet for one session](#a-pet-for-one-session). The gallery lives
 in `~/.local/share/familiard` (`%APPDATA%\\familiard` on Windows,
 `~/Library/Application Support/familiard` on macOS), or wherever `FAMILIARD_HOME` points.
 
+### Finding a pet by part of its name
+
+`summon` takes any part of an id, an alias or a pet's name, like zoxide does with folders, so
+`familiard -s eli` is enough. In order:
+
+1. A whole id, then a whole alias. These always win.
+2. Otherwise, of the pets that fit, the one you use most. Recent use counts for more.
+3. If several are just as likely, as with pets you never used, it lists them instead of guessing.
+
+`dismiss` does the same, but only among the pets that are out. `pets --json` and the browser
+extension keep using whole ids. What you use is remembered in `uses.json` and your aliases in
+`aliases.json`, both in the gallery's home and never in a pet's pack.
 
 ## Pets from Petdex
 
