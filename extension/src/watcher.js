@@ -20,6 +20,17 @@
   function createWatcher({ doc, path, isBound, emit, rowSays = () => null }) {
     let current = null;
     let tracker = null;
+    let staleStop = false;
+
+    /** The row when it can say. Otherwise the stop button, unless the row already disproved this
+     *  very button, which then says nothing until it goes away. */
+    function generating(conversation) {
+      const row = rowSays(conversation);
+      const stop = detect.isGenerating(doc);
+      if (row === true || !stop) staleStop = false;
+      else if (row === false) staleStop = true;
+      return row ?? (stop && !staleStop);
+    }
 
     /** A conversation out of sight may still be answering, or may finish unseen, so nothing here
      *  can say. "registered" only stops claiming it works: never "done", which would celebrate. */
@@ -45,9 +56,10 @@
           leave();
           current = conversation;
           tracker = detect.createTracker();
+          staleStop = false;
           emit(conversation, "visit");
         }
-        const change = tracker.observe(rowSays(conversation) ?? detect.isGenerating(doc));
+        const change = tracker.observe(generating(conversation));
         if (change) emit(conversation, change);
       },
     };

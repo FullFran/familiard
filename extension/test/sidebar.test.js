@@ -204,6 +204,45 @@ test("with the sidebar closed the open conversation goes by its stop button", ()
   assert.deepEqual(sent, ["a:visit", "a:working", "a:done"], "even though the frozen row says working");
 });
 
+test("closing the sidebar does not revive a stop button the row already disproved", () => {
+  const rows = { a: "working", b: null };
+  const options = { stop: true };
+  const shown = { current: "b" };
+  const { sent, watcher } = open(page(rows, options), shown);
+  watcher.tick();
+  options.closed = true;
+  watcher.tick();
+  assert.deepEqual(sent, ["b:visit"]);
+});
+
+test("a stop button that left and came back counts again with the sidebar closed", () => {
+  const rows = { a: "working", b: null };
+  const doc = page(rows, { stop: true });
+  const shown = { current: "b" };
+  const { sent, watcher } = open(doc, shown);
+  watcher.tick();
+  const gone = page(rows, { closed: true, stop: false });
+  doc.querySelector = gone.querySelector.bind(gone);
+  watcher.tick();
+  const back = page(rows, { closed: true, stop: true });
+  doc.querySelector = back.querySelector.bind(back);
+  watcher.tick();
+  assert.deepEqual(sent, ["b:visit", "b:working"]);
+});
+
+test("a row that catches up with its stop button leaves it believed afterwards", () => {
+  const rows = { a: null, b: "working" };
+  const options = { stop: true };
+  const shown = { current: "a" };
+  const { sent, watcher } = open(page(rows, options), shown);
+  watcher.tick();
+  rows.a = "working";
+  watcher.tick();
+  options.closed = true;
+  watcher.tick();
+  assert.deepEqual(sent, ["a:visit", "a:working"], "closing the sidebar is not the answer ending");
+});
+
 test("leaving a generating conversation the sidebar can see does not stop it working", () => {
   const rows = { a: "working", b: null };
   const shown = { current: "a" };
