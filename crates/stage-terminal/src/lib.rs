@@ -177,11 +177,17 @@ mod tests {
 
     #[test]
     fn smooth_drawing_leaves_mostly_empty_cells_empty_and_ignores_their_color() {
-        // A quarter solid is not enough, and exactly half is, keeping only the solid color.
-        let quarter = Sprite::new(2, 2, vec![9, 9, 9, 255, 200, 200, 200, 0, 200, 200, 200, 0, 200, 200, 200, 0]);
-        assert_eq!(render_smooth(&quarter.unwrap(), (2, 2), 1), " ");
-        let half = Sprite::new(2, 2, vec![9, 9, 9, 255, 200, 200, 200, 0, 9, 9, 9, 255, 200, 200, 200, 0]);
-        assert_eq!(render_smooth(&half.unwrap(), (2, 2), 1), "\x1b[38;2;9;9;9;48;2;9;9;9m\u{2580}\x1b[0m");
+        // One line of a 2x4 box is one column, and each half block covers four pixels.
+        let clear = [200, 200, 200, 0];
+        let solid = [9, 9, 9, 255];
+        let quarter = [solid, clear, clear, clear, clear, clear, clear, clear].concat();
+        assert_eq!(render_smooth(&Sprite::new(2, 4, quarter).unwrap(), (2, 4), 1), " ", "a quarter is not enough");
+        let half = [solid, clear, solid, clear, clear, clear, clear, clear].concat();
+        assert_eq!(
+            render_smooth(&Sprite::new(2, 4, half).unwrap(), (2, 4), 1),
+            "\x1b[38;2;9;9;9m\u{2580}\x1b[0m",
+            "half is, keeping only the solid color"
+        );
     }
 
     #[test]
