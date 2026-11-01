@@ -26,7 +26,7 @@
   "content_scripts": [
     {
       "matches": ["https://chatgpt.com/*"],
-      "js": ["src/session.js", "src/detect.js", "src/watcher.js", "src/content.js"],
+      "js": ["src/session.js", "src/detect.js", "src/sidebar.js", "src/watcher.js", "src/content.js"],
       "run_at": "document_idle"
     }
   ]

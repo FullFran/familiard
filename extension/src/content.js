@@ -5,6 +5,7 @@
   const api = globalThis.browser ?? globalThis.chrome;
   const { conversationFromPath, cleanTitle } = globalThis.FamiliardSession;
   const { createWatcher, throttle } = globalThis.FamiliardWatcher;
+  const { isBusy, createSidebarWatcher } = globalThis.FamiliardSidebar;
   const THROTTLE_MS = 500;
   // Attributes a stop button can come and go by. Deliberately not `characterData`.
   const OBSERVED_ATTRIBUTES = ["data-testid", "aria-label", "hidden"];
@@ -16,9 +17,19 @@
     doc: document,
     path: () => location.pathname,
     isBound: (conversation) => Object.hasOwn(bound, conversation),
+    stillVisible: (conversation) => isBusy(document, conversation) === true,
     emit: (conversation, signal) => send({ type: "report", conversation, signal }),
   });
-  const tick = throttle(() => watcher.tick(), THROTTLE_MS);
+  const sidebar = createSidebarWatcher({
+    doc: document,
+    conversations: () => Object.keys(bound),
+    open: () => conversationFromPath(location.pathname),
+    emit: (conversation, signal) => send({ type: "report", conversation, signal }),
+  });
+  const tick = throttle(() => {
+    watcher.tick();
+    sidebar.tick();
+  }, THROTTLE_MS);
   const observer = new MutationObserver(tick);
   let observing = false;
 

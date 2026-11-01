@@ -14,15 +14,16 @@
    * @param path gives the URL's path
    * @param isBound says whether the user brought a pet to a conversation
    * @param emit receives (conversation, "visit" | "working" | "done" | "registered")
+   * @param stillVisible says whether another source can still see a conversation being left
    */
-  function createWatcher({ doc, path, isBound, emit }) {
+  function createWatcher({ doc, path, isBound, emit, stillVisible = () => false }) {
     let current = null;
     let tracker = null;
 
     /** A conversation out of sight may still be answering, or may finish unseen, so nothing here
      *  can say. "registered" only stops claiming it works: never "done", which would celebrate. */
     function leave() {
-      if (current !== null && tracker.generating) emit(current, "registered");
+      if (current !== null && tracker.generating && !stillVisible(current)) emit(current, "registered");
       current = null;
       tracker = null;
     }

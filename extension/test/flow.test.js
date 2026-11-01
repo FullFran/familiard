@@ -112,6 +112,26 @@ test("leaving a conversation mid-answer stops claiming it works, without saying 
   assert.deepEqual(signals(w), ["a:working", "a:registered", "a:working", "a:done"]);
 });
 
+test("leaving mid-answer stays silent if the sidebar can still see that answer", async () => {
+  const doc = fakeDocument(page());
+  let path = `/c/${MINE}`;
+  const sent = [];
+  const watcher = createWatcher({
+    doc,
+    path: () => path,
+    isBound: () => true,
+    stillVisible: (conversation) => conversation === MINE,
+    emit: (conversation, signal) => sent.push(signal),
+  });
+  watcher.tick();
+  doc.replace(page(STOP));
+  watcher.tick();
+  path = "/";
+  doc.replace(page());
+  watcher.tick();
+  assert.deepEqual(sent, ["visit", "working"]);
+});
+
 test("leaving a conversation that is not answering sends nothing", async () => {
   const w = world();
   const page = tab(w, 1, MINE);
