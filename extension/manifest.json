@@ -23,10 +23,13 @@
     "service_worker": "src/background.js",
     "scripts": ["src/session.js", "src/hub.js", "src/background.js"]
   },
+  "web_accessible_resources": [
+    { "resources": ["popup/popup.html"], "matches": ["https://chatgpt.com/*"] }
+  ],
   "content_scripts": [
     {
       "matches": ["https://chatgpt.com/*"],
-      "js": ["src/session.js", "src/detect.js", "src/sidebar.js", "src/watcher.js", "src/content.js"],
+      "js": ["src/session.js", "src/detect.js", "src/sidebar.js", "src/watcher.js", "src/launcher.js", "src/content.js"],
       "run_at": "document_idle"
     }
   ]

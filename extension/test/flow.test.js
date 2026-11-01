@@ -217,6 +217,44 @@ test("a pet that left by other means is not listed", async () => {
   assert.deepEqual((await w.hub.status(MINE)).others, []);
 });
 
+test("a pet that left by other means says goodbye to its session", async () => {
+  const w = world();
+  await w.hub.bring({ pet: "mochi", conversation: MINE, name: "", tab: 1 });
+  w.open.delete("mochi");
+  await w.hub.status(OTHER);
+  assert.deepEqual(signals(w), ["a:ended"]);
+  assert.deepEqual(w.bound(), {});
+});
+
+test("the status lists every other pet that is out, however it got there", async () => {
+  const pets = ["mochi", "kuro", "sora"].map((id) => ({ id, name: `${id} name`, default: false, open: false }));
+  const w = world({ pets });
+  await w.hub.bring({ pet: "mochi", conversation: MINE, name: "", tab: 1 });
+  w.open.add("kuro");
+  assert.deepEqual((await w.hub.status(MINE)).loose, [{ pet: "kuro" }]);
+  assert.deepEqual((await w.hub.status(null)).loose, [{ pet: "kuro" }]);
+});
+
+test("the status lists a pet that is out without being in the gallery", async () => {
+  const w = world();
+  const native = async (message) => (message.type === "list" ? { ok: true, pets: [], strays: ["run-42"] } : { ok: true });
+  const hub = createHub({ native, storage: { load: async () => ({}), save: async () => {} } });
+  assert.deepEqual((await hub.status(null)).loose, [{ pet: "run-42" }]);
+  assert.deepEqual(w.sent, []);
+});
+
+test("a pet that came from elsewhere can be dismissed, with no session to say goodbye to", async () => {
+  const pets = ["mochi", "kuro"].map((id) => ({ id, name: id, default: false, open: false }));
+  const w = world({ pets });
+  await w.hub.bring({ pet: "mochi", conversation: MINE, name: "", tab: 1 });
+  w.open.add("kuro");
+  await w.hub.dismissPet("kuro");
+  assert.equal(w.open.has("kuro"), false);
+  assert.equal(w.open.has("mochi"), true);
+  assert.deepEqual(signals(w), []);
+  assert.deepEqual((await w.hub.status(MINE)).loose, []);
+});
+
 test("a pet the host refuses is not bound", async () => {
   const w = world();
   await w.hub.bring({ pet: "mochi", conversation: MINE, name: "One", tab: 1 });

@@ -40,7 +40,8 @@ both.
 
 ## Use it
 
-1. Open a conversation and click the extension's button in the toolbar.
+1. Open a conversation and click 🐾 beside the box you write in, or the extension's button in the
+   toolbar. Both show the same panel.
 2. Choose a pet from your gallery. Any pet in `familiard pets` works, including any standard Codex
    pack. The name starts as the conversation's title; change it if you like.
 3. Press **Bring a waifu to this conversation** (in Spanish, **traer waifu a esta conversación**).
@@ -52,7 +53,8 @@ nothing by itself.
 | --- | --- |
 | It starts answering | Works: `Bug del login · working` |
 | It finishes, even if you moved to another conversation | Celebrates: `Bug del login · done` |
-| You press **Dismiss** (**despedir**) in the popup, from any tab, or `familiard dismiss` | Leaves |
+| You press **Dismiss** (**despedir**) in the panel, from any tab, or `familiard dismiss` | Leaves |
+| You right-click the pet and press **Dismiss** (**Despedir**) | Leaves |
 | You close the last tab showing it | Leaves |
 | You restart the browser | Leaves when the browser opens again |
 
@@ -62,7 +64,9 @@ Things to know:
   conversation. For one pet per conversation, keep several in your gallery. `familiard add <folder>
   --as other-name` adds the same pack twice.
 - A conversation has one pet at a time.
-- The popup lists the pets out on other conversations, so you can dismiss one without going there.
+- The panel lists every other pet that is out, on other conversations, following an agent in a
+  terminal, or from `familiard run`, so you can dismiss any of them from here.
+- 🐾 needs no selector to survive: without the box to write in, it waits in a corner of the window.
 - **Keep the sidebar open to follow several conversations.** A closed sidebar stops updating its
   rows. The conversation on screen then goes by its stop button. A conversation out of sight that
   was already being followed keeps working until you reopen the sidebar, which is when it
@@ -101,12 +105,15 @@ Things to know:
   `data-sidebar-indicator` attribute, and whether that row is on screen. See
   `extension/src/sidebar.js`. It reads no title or text from the row.
 - The conversation's id, from the URL.
-- The title of the page, when you open the popup on a conversation, to suggest a name. It stays in
-  the popup unless you press the button.
+- The title of the page, when you open the panel on a conversation, to suggest a name. It stays in
+  the panel unless you press the button.
+- Where the box to write in is, by `#prompt-textarea` or `textarea[name="prompt"]`, to put 🐾 beside it. It asks twice a second
+  for that box's position while the tab is visible, on every chatgpt.com page, and never for its
+  text. See `extension/src/launcher.js`.
 
 **It never reads** your messages, what you are typing, cookies, tokens or request bodies. It makes
 no network requests. For a conversation you did not bring a pet to, it sends nothing at all and
-does not look at the stop button or its row. The only thing it asks of the page as a whole is
+does not look at the stop button or its row. Apart from 🐾, the only thing it asks of the page as a whole is
 whether any row says `working`, without looking at which.
 
 **It sends**, only to the familiard on your own machine: the conversation's id, its state (`working`,
@@ -114,7 +121,20 @@ whether any row says `working`, without looking at which.
 [hook](agents.md). familiard does not write them to disk, and they do not leave your machine.
 
 It asks the browser for `nativeMessaging`, `storage` and access to `https://chatgpt.com/*`, and
-nothing more. `extension/test/privacy.test.js` pins this against a fixture page. The host also
+nothing more. `extension/test/privacy.test.js` pins this against a fixture page.
+
+**The panel on the page is out of the page's reach, with one limit.** It is the popup itself, in a
+frame of the extension, inside a closed shadow root, so the page's scripts can neither read it nor
+press its buttons. For that, `popup/popup.html` is a web accessible resource on chatgpt.com, and that
+has costs:
+
+- On Chromium the extension's id is fixed, so chatgpt.com can tell it is installed (🐾 says as much
+  anyway), and it can open that page in a frame or a tab of its own. Those show nothing, because a
+  popup inside a tab asks the launcher for the random token of the panel it opened.
+- A hostile page can restyle the panel so that you press its buttons without knowing, once it is
+  open: a click-jack. The most that does is bring or dismiss a pet. Nothing reaches the page, and the
+  toolbar's button, outside the page, has no such limit.
+ The host also
 refuses any message with a field it does not expect, so nothing else can travel that way by accident.
 
 ## When ChatGPT changes
@@ -185,3 +205,4 @@ Install writes all of them, even for browsers you do not have, which leaves a sm
 | Windows pets surviving the host, via `CREATE_BREAKAWAY_FROM_JOB` | Documented for Firefox. **Not tested on Windows** | [MDN](https://developer.mozilla.org/en-US/docs/Mozilla/Add-ons/WebExtensions/Native_messaging) |
 | Zen 1.21.15b to 1.22b on macOS never starting a host through `connectNative` | Reported and fixed on Twilight. This extension uses `sendNativeMessage`; whether that was affected is **unknown** | [Zen #15123](https://github.com/zen-browser/desktop/issues/15123) |
 | The real chatgpt.com, its current selectors, and its Spanish labels | **Unknown**: never visited | |
+| The panel on the page | Checked on Chromium 149 against a stand-in page with a strict CSP. `textarea[name="prompt"]` was seen on the real site logged out, on Firefox 158. Logged in, its selector is **unknown** | |

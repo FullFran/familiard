@@ -46,6 +46,7 @@ test("every file the manifest names exists", () => {
     manifest.background.service_worker,
     ...manifest.background.scripts,
     ...manifest.content_scripts.flatMap((script) => script.js),
+    ...manifest.web_accessible_resources.flatMap((entry) => entry.resources),
   ];
   for (const file of files) assert.ok(fs.existsSync(path.join(ROOT, file)), file);
 });

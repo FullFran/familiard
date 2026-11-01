@@ -3,6 +3,8 @@
   "extensionDescription": { "message": "Trae una mascota de escritorio a una conversación de ChatGPT, para que te avise cuando termine." },
   "bringButton": { "message": "traer waifu a esta conversación" },
   "othersTitle": { "message": "En otras conversaciones:" },
+  "looseTitle": { "message": "También fuera:" },
+  "panelButton": { "message": "Mascotas" },
   "otherNamed": { "message": "$PET$, «$NAME$»", "placeholders": { "pet": { "content": "$1" }, "name": { "content": "$2" } } },
   "dismissButton": { "message": "despedir" },
   "petLabel": { "message": "Mascota" },

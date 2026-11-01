@@ -10,6 +10,8 @@
   // Attributes a stop button or a row's state can come and go by. Deliberately not `characterData`.
   const OBSERVED_ATTRIBUTES = ["data-testid", "aria-label", "hidden", "data-sidebar-indicator"];
 
+  globalThis.FamiliardLauncher.start({ api, doc: document, win: window });
+
   let bound = {};
   const send = (message) => api.runtime.sendMessage(message).catch(() => {});
 

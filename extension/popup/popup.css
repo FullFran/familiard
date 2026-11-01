@@ -3,6 +3,10 @@
   font: 14px system-ui, sans-serif;
 }
 
+html {
+  background: Canvas;
+}
+
 body {
   width: 280px;
   margin: 12px;
@@ -35,30 +39,31 @@ button {
   cursor: pointer;
 }
 
-#others {
+#others,
+#loose {
   margin-top: 12px;
 }
 
-#others-list {
+ul {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-#others-list li {
+li {
   display: flex;
   gap: 8px;
   align-items: center;
   margin-bottom: 4px;
 }
 
-#others-list span {
+li span {
   flex: 1;
   min-width: 0;
   overflow-wrap: anywhere;
 }
 
-#others-list button {
+li button {
   width: auto;
   flex: none;
 }

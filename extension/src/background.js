@@ -19,11 +19,19 @@ if (typeof importScripts === "function") importScripts("session.js", "hub.js");
 
   const fromPopup = (sender) => sender.url?.startsWith(api.runtime.getURL("popup/"));
 
+  // Firefox gives a popup in a frame no `tabs`, so what it says to its own tab goes through here.
+  const FOR_THE_TAB = new Set(["describe", "panelToken", "panelHeight"]);
+
   function handle(message, sender) {
     if (fromPopup(sender)) {
+      if (message.type === "whereAmI") return Promise.resolve({ tab: sender.tab?.id });
+      if (message.type === "toMyTab" && sender.tab && FOR_THE_TAB.has(message.message?.type)) {
+        return api.tabs.sendMessage(sender.tab.id, message.message);
+      }
       if (message.type === "status") return hub.status(message.conversation);
       if (message.type === "bring") return hub.bring(message);
       if (message.type === "dismiss") return hub.dismiss(message.conversation);
+      if (message.type === "dismissPet") return hub.dismissPet(message.pet);
     }
     // A page may only report on what it shows, and the hub drops it without a pet.
     if (message.type === "report" && sender.tab) {

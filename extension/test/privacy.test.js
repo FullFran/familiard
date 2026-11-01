@@ -10,7 +10,7 @@ const { fakeDocument, fixture, page, STOP } = require("./helpers.js");
 
 const ROOT = path.join(__dirname, "..");
 const read = (file) => fs.readFileSync(path.join(ROOT, file), "utf8");
-const SOURCES = ["src/session.js", "src/detect.js", "src/watcher.js", "src/content.js", "src/hub.js", "src/background.js", "popup/popup.js"];
+const SOURCES = ["src/session.js", "src/detect.js", "src/watcher.js", "src/content.js", "src/launcher.js", "src/hub.js", "src/background.js", "popup/popup.js"];
 const MINE = "aaaaaaaa-1111-2222-3333-444444444444";
 const OTHER = "bbbbbbbb-1111-2222-3333-444444444444";
 
@@ -117,5 +117,21 @@ test("the manifest asks for exactly what the docs say, on one site only", () => 
   assert.deepEqual(manifest.content_scripts.map((s) => s.matches), [["https://chatgpt.com/*"]]);
   assert.equal(manifest.optional_permissions, undefined);
   assert.equal(manifest.externally_connectable, undefined);
-  assert.equal(manifest.web_accessible_resources, undefined);
+  assert.deepEqual(manifest.web_accessible_resources, [
+    { resources: ["popup/popup.html"], matches: ["https://chatgpt.com/*"] },
+  ]);
+});
+
+test("the launcher asks the page only where the box to write in is, not what it says", () => {
+  const launcher = read("src/launcher.js");
+  assert.deepEqual([...launcher.matchAll(/querySelector\((\w+)\)/g)].map((match) => match[1]), ["COMPOSER"]);
+  assert.ok(launcher.includes(`const COMPOSER = '#prompt-textarea, textarea[name="prompt"]';`));
+  assert.doesNotMatch(launcher, /\.value\b|MutationObserver|getAttribute|\.dataset/);
+  assert.equal((launcher.match(/sendMessage/g) ?? []).length, 0);
+});
+
+test("the panel lives where the page cannot reach it", () => {
+  const launcher = read("src/launcher.js");
+  assert.match(launcher, /attachShadow\(\{ mode: "closed" \}\)/);
+  assert.match(launcher, /randomUUID\(\)/);
 });

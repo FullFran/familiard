@@ -26,8 +26,8 @@
     }
 
     return {
-      /** The gallery, what this conversation and the others have, and which pets went away by other
-       *  means. */
+      /** The gallery, what this conversation and the others have, the pets out that came from
+       *  elsewhere, and which pets went away by other means. */
       status(conversation) {
         return serial(async () => {
           const reply = await native(session.listMessage());
@@ -37,6 +37,7 @@
           let changed = false;
           for (const [key, binding] of Object.entries(bound)) {
             if (!open.has(binding.pet)) {
+              await end(key);
               delete bound[key];
               changed = true;
             }
@@ -46,7 +47,12 @@
           const others = Object.entries(bound)
             .filter(([key]) => key !== conversation)
             .map(([key, binding]) => ({ conversation: key, pet: binding.pet, name: binding.name }));
-          return { ok: true, pets: reply.pets, bound: mine && { pet: mine.pet, name: mine.name }, others };
+          const taken = new Set(Object.values(bound).map((binding) => binding.pet));
+          const loose = reply.pets
+            .filter((pet) => pet.open && !taken.has(pet.id))
+            .map((pet) => ({ pet: pet.id }))
+            .concat((reply.strays ?? []).map((pet) => ({ pet })));
+          return { ok: true, pets: reply.pets, bound: mine && { pet: mine.pet, name: mine.name }, others, loose };
         });
       },
 
@@ -75,6 +81,11 @@
           await storage.save(bound);
           return reply;
         });
+      },
+
+      /** For a pet no conversation brought, such as one following an agent in a terminal. */
+      dismissPet(pet) {
+        return serial(() => native(session.dismissMessage(pet)));
       },
 
       /** What a page reports. `visit` tells nobody: it only records which tabs show what. */
