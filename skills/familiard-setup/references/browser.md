@@ -1,13 +1,12 @@
 # A pet for a ChatGPT conversation
 
-ChatGPT on the web has no hooks, so a small browser extension watches the one thing that says
-whether a conversation is working: its stop button. You press a button to bring a pet to the
+ChatGPT on the web has no hooks, so a small browser extension watches the two things that say
+whether a conversation is working: its row in the sidebar and its stop button. You press a button to bring a pet to the
 conversation you are in. The pet takes the conversation's name, and tells you when it finishes.
 
 **Not supported by OpenAI.** This reads a page that can change at any moment, so it may break
-without notice. It has only been tested against a fake page, never on the real chatgpt.com, so its
-selectors may already be out of date. If it does not react, see
-[When ChatGPT changes](#when-chatgpt-changes).
+without notice. It has been tested on the real chatgpt.com in Spanish, in Zen on Linux. If it does
+not react, see [When ChatGPT changes](#when-chatgpt-changes).
 
 ## Set it up
 
@@ -51,8 +50,8 @@ nothing by itself.
 
 | In the conversation | The pet |
 | --- | --- |
-| The stop button appears | Works: `Bug del login · working` |
-| The stop button goes away | Celebrates: `Bug del login · done` |
+| It starts answering | Works: `Bug del login · working` |
+| It finishes, even if you moved to another conversation | Celebrates: `Bug del login · done` |
 | You press **Dismiss** (**despedir**), or `familiard dismiss` | Leaves |
 | You close the last tab showing it | Leaves |
 | You restart the browser | Leaves when the browser opens again |
@@ -63,9 +62,16 @@ Things to know:
   conversation. For one pet per conversation, keep several in your gallery. `familiard add <folder>
   --as other-name` adds the same pack twice.
 - A conversation has one pet at a time.
-- While you are looking at another conversation in that tab the extension cannot see the first
-  one. Nothing is reported, and the pet catches up when you come back. After 5 minutes of that it
-  goes idle, but it stays.
+- **Keep the sidebar open to follow several conversations.** A closed sidebar stops updating its
+  rows. The conversation on screen then goes by its stop button. A conversation out of sight that
+  was already being followed keeps working until you reopen the sidebar, which is when it
+  celebrates; one you leave with the sidebar already closed stops working without celebrating.
+  After moving between
+  conversations the stop button can also be wrong, so with the sidebar closed a conversation you
+  moved to may not start working.
+- A tab only knows about the conversations answering in that tab. Another tab's answers do not
+  reach its sidebar, nor a row scrolled out of the list.
+- If a conversation's state cannot be known for 5 minutes its pet goes idle, but it stays.
 - A pet with no binding, from a plain `familiard summon`, follows every session, and that includes
   these conversations.
 - `chatgpt:` sessions report no folder, so they never claim a pet summoned with `--here`.
@@ -73,19 +79,34 @@ Things to know:
   popup shows the error. Set `FAMILIARD_BROWSER_STAGE=terminal` in the browser's environment to use
   the terminal stage, which draws nowhere you can see and is mostly useful for tests.
 
+## Known problems
+
+| Situation | What happens | Why |
+| --- | --- | --- |
+| The sidebar is closed, and a conversation out of sight finishes | Its pet keeps working until you reopen the sidebar, or for 5 minutes | Closed, the sidebar stops updating its rows |
+| You move to another conversation, close the sidebar and ask there | That pet may not start working | The stop button left by the first conversation cannot be told from a new one |
+| You bring a pet to a conversation right after leaving one that was answering, with no pet on it | The pet can claim to work when it is not, until the 5 minute limit or its next answer | Same leftover stop button, and no row has been seen working yet |
+| You open a conversation already answering, in a page where no row has been seen working | The same false `working` is possible | Same |
+| The answer runs in another tab | This tab's pet hears nothing | Each tab's sidebar only knows its own answers |
+| The row is scrolled out of the list | Nothing is reported until it is back | The row cannot be read |
+
 ## What it reads, and what it does not
 
 **It reads:**
 
 - Whether a stop button is on the page, by the selectors in `extension/src/detect.js`, and only in
   a conversation you brought a pet to.
+- Whether the sidebar row of a conversation you brought a pet to says `working`, by the
+  `data-sidebar-indicator` attribute, and whether that row is on screen. See
+  `extension/src/sidebar.js`. It reads no title or text from the row.
 - The conversation's id, from the URL.
 - The title of the page, when you open the popup on a conversation, to suggest a name. It stays in
   the popup unless you press the button.
 
 **It never reads** your messages, what you are typing, cookies, tokens or request bodies. It makes
 no network requests. For a conversation you did not bring a pet to, it sends nothing at all and
-does not look at the stop button.
+does not look at the stop button or its row. The only thing it asks of the page as a whole is
+whether any row says `working`, without looking at which.
 
 **It sends**, only to the familiard on your own machine: the conversation's id, its state (`working`,
 `done`, `ended`), and the pet and name you chose. Open pets hear those over loopback, like any
@@ -99,6 +120,8 @@ refuses any message with a field it does not expect, so nothing else can travel 
 
 If the pet stops reacting while everything else looks right, the stop button probably changed. The
 extension treats a selector that matches nothing as no signal, so it goes quiet rather than guessing.
+If `data-sidebar-indicator` disappears, the extension falls back to the stop button alone, and pets
+stop following conversations out of sight. Its values live in `extension/src/sidebar.js`.
 
 1. In a conversation that is generating, open the developer tools and inspect the stop button.
 2. Note its `data-testid`, or else its `aria-label`.
@@ -108,13 +131,14 @@ extension treats a selector that matches nothing as no signal, so it goes quiet 
 4. Add a button to the first test in `extension/test/detect.test.js`, and run `node --test` in `extension/`.
 5. Reload the extension.
 
-A pet only knows about a conversation while its tab shows it. If you move to another conversation
-while one is answering, or reload the tab, its pet stops working without celebrating, because that
-answer can no longer be seen. Come back while it is still answering and the pet picks it up again.
+A pet follows a conversation through its tab's sidebar when you move to another one. If the sidebar
+cannot see it, or you reload the tab, its pet stops working without celebrating, because that answer
+can no longer be seen. Come back while it is still answering and the pet picks it up again.
 
 chatgpt.com has been seen with no `data-testid` on this button, only an `aria-label` in the page's
 language: `Detener` in Spanish, which is the one checked on the real site. `Stop` for English is
-expected but unchecked, and other languages have no entry, so the pet stays quiet until yours is added.
+expected but unchecked, and other languages have no entry. In those the sidebar still drives the pet
+while it is open, and with it closed the pet stays quiet until your language is added.
 
 ## The pieces
 
