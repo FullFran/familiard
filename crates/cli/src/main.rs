@@ -9,7 +9,7 @@ use familiard_caption::FontCaptioner;
 use familiard_domain::Mood;
 use familiard_gallery::{home, Entry, Gallery, GalleryError};
 use familiard_pack::PetPack;
-use familiard_stage_terminal::{columns_for, render_smooth, TerminalStage};
+use familiard_stage_terminal::{columns_for, render_octants, render_smooth, TerminalStage};
 use std::fs::{self, File};
 use std::io::{IsTerminal, Read, Write};
 use std::path::Path;
@@ -37,7 +37,7 @@ const USAGE: &str = "usage:
   familiard default <id|alias>     choose the default pet
   familiard run --pet <dir> [--follow DIR | --session ID] [--still] [--name TEXT] [--stage desktop|terminal] [--rows N] [--frames N] [--at X,Y]
                                    run a pet in the foreground, without the gallery
-  familiard frames <id|alias> --rows N
+  familiard frames <id|alias> --rows N [--octants]
                                    a pet's animations as text, as JSON, for other programs to embed
   familiard hook --agent <name> [--event <event>] [--session <id>] [--project <dir>]
   familiard browser install|uninstall   connect the browser extension (docs/browser.md)
@@ -544,8 +544,11 @@ fn pick_from_numbers(lines: &[String]) -> Result<Option<usize>, Failure> {
 
 /// A pet's animations drawn as text, for a program that wants to show it inside its own interface.
 fn frames(args: Vec<String>) -> Result<(), Failure> {
-    let (name, rows) = match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
-        [name, "--rows", rows] if !name.starts_with('-') => (name.to_string(), rows.to_string()),
+    let (name, rows, draw): (_, _, fn(&_, _, _) -> String) = match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+        [name, "--rows", rows] if !name.starts_with('-') => (name.to_string(), rows.to_string(), render_smooth),
+        [name, "--rows", rows, "--octants"] if !name.starts_with('-') => {
+            (name.to_string(), rows.to_string(), render_octants)
+        }
         _ => return Err(format!("frames needs a pet and --rows N\n{USAGE}").into()),
     };
     let rows = rows.parse::<u32>().ok().filter(|rows| (1..=MAX_FRAME_ROWS).contains(rows));
@@ -557,7 +560,7 @@ fn frames(args: Vec<String>) -> Result<(), Failure> {
     let clip = |mood: Mood| {
         let clip = pet.clip(mood);
         let frames: Vec<String> =
-            (0..clip.len()).map(|index| render_smooth(clip.frame(index), bounds, rows)).collect();
+            (0..clip.len()).map(|index| draw(clip.frame(index), bounds, rows)).collect();
         serde_json::json!({ "fps": mood.fps(), "frames": frames })
     };
     let answer = serde_json::json!({

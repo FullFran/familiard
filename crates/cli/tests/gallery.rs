@@ -600,9 +600,26 @@ fn frames_give_a_pet_as_text_for_other_programs() {
 }
 
 #[test]
+fn frames_can_draw_with_octants_in_the_same_room() {
+    let home = Home::new();
+    home.ok(&["add", &demo(), "--as", "mochi"]);
+    let parse = |args: &[&str]| -> serde_json::Value { serde_json::from_str(&home.ok(args)).unwrap() };
+    let half = parse(&["frames", "mochi", "--rows", "6"]);
+    let octants = parse(&["frames", "mochi", "--rows", "6", "--octants"]);
+    assert_eq!(octants["rows"], half["rows"]);
+    assert_eq!(octants["columns"], half["columns"]);
+    let frame = |answer: &serde_json::Value| answer["clips"]["idle"]["frames"][0].as_str().unwrap().to_string();
+    assert_eq!(frame(&octants).lines().count(), 6);
+    assert_ne!(frame(&octants), frame(&half), "--octants draws something else");
+    assert!(!frame(&half).contains(|c| ('\u{1cd00}'..='\u{1cde5}').contains(&c)), "halves stay the default");
+}
+
+#[test]
 fn frames_refuse_what_they_cannot_draw() {
     let home = Home::new();
     home.ok(&["add", &demo(), "--as", "mochi"]);
+    assert!(home.fails(&["frames", "mochi", "--rows", "6", "--sharp"]).contains("frames needs"));
+    assert!(home.fails(&["frames", "mochi", "--octants", "--rows", "6"]).contains("frames needs"));
     assert!(home.fails(&["frames", "moc", "--rows", "6"]).contains("no pet 'moc'"), "no guessing for programs");
     for rows in ["0", "65", "muchas"] {
         assert!(home.fails(&["frames", "mochi", "--rows", rows]).contains("--rows must be"), "{rows}");
