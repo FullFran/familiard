@@ -79,6 +79,17 @@ Things to know:
   popup shows the error. Set `FAMILIARD_BROWSER_STAGE=terminal` in the browser's environment to use
   the terminal stage, which draws nowhere you can see and is mostly useful for tests.
 
+## Known problems
+
+| Situation | What happens | Why |
+| --- | --- | --- |
+| The sidebar is closed, and a conversation out of sight finishes | Its pet keeps working until you reopen the sidebar, or for 5 minutes | Closed, the sidebar stops updating its rows |
+| You move to another conversation, close the sidebar and ask there | That pet may not start working | The stop button left by the first conversation cannot be told from a new one |
+| You bring a pet to a conversation right after leaving one that was answering, with no pet on it | The pet can claim to work when it is not, until the 5 minute limit or its next answer | Same leftover stop button, and no row has been seen working yet |
+| You open a conversation already answering, in a page where no row has been seen working | The same false `working` is possible | Same |
+| The answer runs in another tab | This tab's pet hears nothing | Each tab's sidebar only knows its own answers |
+| The row is scrolled out of the list | Nothing is reported until it is back | The row cannot be read |
+
 ## What it reads, and what it does not
 
 **It reads:**
