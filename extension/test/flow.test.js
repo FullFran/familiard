@@ -96,19 +96,39 @@ test("a page whose selectors stopped matching reports nothing rather than guessi
   assert.deepEqual(signals(w), []);
 });
 
-test("another conversation in the same tab sends nothing, and leaving one is not done", async () => {
+test("leaving a conversation mid-answer stops claiming it works, without saying it is done", async () => {
   const w = world();
   const page = tab(w, 1, MINE);
   await w.hub.bring({ pet: "mochi", conversation: MINE, name: "Bug", tab: 1 });
   await page.show(STOP);
   await page.go(OTHER, STOP);
+  assert.deepEqual(signals(w), ["a:working", "a:registered"], "it can no longer see that answer");
   await page.go(OTHER, "");
   await page.go(null);
-  assert.deepEqual(signals(w), ["a:working"]);
+  assert.deepEqual(signals(w), ["a:working", "a:registered"], "another conversation sends nothing");
   await page.go(MINE, STOP);
-  assert.deepEqual(signals(w), ["a:working", "a:working"]);
+  assert.deepEqual(signals(w), ["a:working", "a:registered", "a:working"]);
   await page.show("");
-  assert.deepEqual(signals(w), ["a:working", "a:working", "a:done"]);
+  assert.deepEqual(signals(w), ["a:working", "a:registered", "a:working", "a:done"]);
+});
+
+test("leaving a conversation that is not answering sends nothing", async () => {
+  const w = world();
+  const page = tab(w, 1, MINE);
+  await w.hub.bring({ pet: "mochi", conversation: MINE, name: "Bug", tab: 1 });
+  await page.show(STOP);
+  await page.show("");
+  await page.go(OTHER, "");
+  assert.deepEqual(signals(w), ["a:working", "a:done"]);
+});
+
+test("leaving for a page that is no conversation also stops claiming it works", async () => {
+  const w = world();
+  const page = tab(w, 1, MINE);
+  await w.hub.bring({ pet: "mochi", conversation: MINE, name: "Bug", tab: 1 });
+  await page.show(STOP);
+  await page.go(null);
+  assert.deepEqual(signals(w), ["a:working", "a:registered"]);
 });
 
 test("closing the tab ends the session once, and only the last tab counts", async () => {

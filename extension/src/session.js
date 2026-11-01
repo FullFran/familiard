@@ -10,7 +10,7 @@
   const VALID_CONVERSATION = /^[A-Za-z0-9_-]{1,128}$/;
   const SITE_NAME = "ChatGPT";
   const MAX_NAME = 256;
-  const SIGNALS = ["working", "done", "ended"];
+  const SIGNALS = ["registered", "working", "done", "ended"];
 
   /** The id in a conversation's URL path, or null anywhere else on the site. */
   function conversationFromPath(pathname) {

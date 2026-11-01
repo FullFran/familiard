@@ -13,24 +13,34 @@
    * @param doc the page, used only to look for a stop button
    * @param path gives the URL's path
    * @param isBound says whether the user brought a pet to a conversation
-   * @param emit receives (conversation, "visit" | "working" | "done")
+   * @param emit receives (conversation, "visit" | "working" | "done" | "registered")
    */
   function createWatcher({ doc, path, isBound, emit }) {
     let current = null;
     let tracker = null;
 
+    /** A conversation out of sight may still be answering, or may finish unseen, so nothing here
+     *  can say. "registered" only stops claiming it works: never "done", which would celebrate. */
+    function leave() {
+      if (current !== null && tracker.generating) emit(current, "registered");
+      current = null;
+      tracker = null;
+    }
+
     return {
+      leave,
+
       /** Call it whenever something may have changed. */
       tick() {
         const conversation = session.conversationFromPath(path());
         if (conversation === null || !isBound(conversation)) {
-          current = null;
-          tracker = null;
+          leave();
           return;
         }
-        // Leaving a conversation also removes its stop button, which says nothing about it. So
-        // arriving starts afresh, and a turn that ended meanwhile is not reported.
+        // Arriving starts afresh: a stop button that is not there yet says nothing about a turn
+        // that ended meanwhile.
         if (conversation !== current) {
+          leave();
           current = conversation;
           tracker = detect.createTracker();
           emit(conversation, "visit");

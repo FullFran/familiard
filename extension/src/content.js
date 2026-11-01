@@ -39,6 +39,9 @@
     tick();
   }
 
+  // Reloading or unloading the tab ends this script, and with it any news of the answer.
+  addEventListener("pagehide", () => watcher.leave());
+
   api.storage.local.get("bound").then((stored) => apply(stored.bound));
   api.storage.onChanged.addListener((changes, area) => {
     if (area === "local" && changes.bound) apply(changes.bound.newValue);

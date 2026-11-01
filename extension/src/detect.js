@@ -40,6 +40,9 @@
         generating = now;
         return now ? "working" : "done";
       },
+      get generating() {
+        return generating;
+      },
     };
   }
 

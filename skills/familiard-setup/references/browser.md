@@ -108,6 +108,10 @@ extension treats a selector that matches nothing as no signal, so it goes quiet 
 4. Add a button to the first test in `extension/test/detect.test.js`, and run `node --test` in `extension/`.
 5. Reload the extension.
 
+A pet only knows about a conversation while its tab shows it. If you move to another conversation
+while one is answering, or reload the tab, its pet stops working without celebrating, because that
+answer can no longer be seen. Come back while it is still answering and the pet picks it up again.
+
 chatgpt.com has been seen with no `data-testid` on this button, only an `aria-label` in the page's
 language: `Detener` in Spanish, which is the one checked on the real site. `Stop` for English is
 expected but unchecked, and other languages have no entry, so the pet stays quiet until yours is added.
