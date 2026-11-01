@@ -6,9 +6,10 @@ mod petdex;
 use familiard_agents::{interpret, LocalFeed, Roster};
 use familiard_application::{summon, ActivityFeed, Failure, PetSource, Stage};
 use familiard_caption::FontCaptioner;
+use familiard_domain::Mood;
 use familiard_gallery::{home, Entry, Gallery, GalleryError};
 use familiard_pack::PetPack;
-use familiard_stage_terminal::TerminalStage;
+use familiard_stage_terminal::{columns_for, render_smooth, TerminalStage};
 use std::fs::{self, File};
 use std::io::{IsTerminal, Read, Write};
 use std::path::Path;
@@ -36,6 +37,8 @@ const USAGE: &str = "usage:
   familiard default <id|alias>     choose the default pet
   familiard run --pet <dir> [--follow DIR | --session ID] [--still] [--name TEXT] [--stage desktop|terminal] [--rows N] [--frames N] [--at X,Y]
                                    run a pet in the foreground, without the gallery
+  familiard frames <id|alias> --rows N
+                                   a pet's animations as text, as JSON, for other programs to embed
   familiard hook --agent <name> [--event <event>] [--session <id>] [--project <dir>]
   familiard browser install|uninstall   connect the browser extension (docs/browser.md)
   familiard native-host            what the browser extension talks to; not for typing
@@ -45,6 +48,7 @@ const PAYLOAD_TIMEOUT: Duration = Duration::from_secs(1);
 const SUMMON_TIMEOUT: Duration = Duration::from_secs(5);
 const CASCADE: i32 = 140;
 const MAX_SESSION: usize = 1024;
+const MAX_FRAME_ROWS: u32 = 64;
 
 fn roster() -> Roster {
     Roster::new(home().join("running"))
@@ -538,6 +542,40 @@ fn pick_from_numbers(lines: &[String]) -> Result<Option<usize>, Failure> {
     Ok(number.and_then(|number| number.checked_sub(1)).filter(|index| *index < lines.len()))
 }
 
+/// A pet's animations drawn as text, for a program that wants to show it inside its own interface.
+fn frames(args: Vec<String>) -> Result<(), Failure> {
+    let (name, rows) = match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+        [name, "--rows", rows] if !name.starts_with('-') => (name.to_string(), rows.to_string()),
+        _ => return Err(format!("frames needs a pet and --rows N\n{USAGE}").into()),
+    };
+    let rows = rows.parse::<u32>().ok().filter(|rows| (1..=MAX_FRAME_ROWS).contains(rows));
+    let rows = rows.ok_or(format!("--rows must be from 1 to {MAX_FRAME_ROWS}\n{USAGE}"))?;
+    let gallery = Gallery::new(&home());
+    let id = gallery.exact(&name)?;
+    let pet = PetPack::new(gallery.folder(&id)?).load()?;
+    let bounds = pet.bounds();
+    let clip = |mood: Mood| {
+        let clip = pet.clip(mood);
+        let frames: Vec<String> =
+            (0..clip.len()).map(|index| render_smooth(clip.frame(index), bounds, rows)).collect();
+        serde_json::json!({ "fps": mood.fps(), "frames": frames })
+    };
+    let answer = serde_json::json!({
+        "id": id,
+        "name": pet.name(),
+        "rows": rows,
+        "columns": columns_for(bounds, rows),
+        "clips": {
+            "idle": clip(Mood::Idle),
+            "working": clip(Mood::Working),
+            "waiting": clip(Mood::Waiting),
+            "done": clip(Mood::Done),
+        },
+    });
+    println!("{answer}");
+    Ok(())
+}
+
 fn alias(args: Vec<String>) -> Result<(), Failure> {
     let gallery = Gallery::new(&home());
     match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
@@ -657,6 +695,7 @@ fn dispatch(mut args: Vec<String>) -> Result<(), Failure> {
         "dismiss" | "-d" => dismiss(args),
         "pets" | "-l" => pets(args),
         "pick" | "-si" => pick(args),
+        "frames" => frames(args),
         "alias" => alias(args),
         "add" => add(args),
         "search" => petdex::search(args),

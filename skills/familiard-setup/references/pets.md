@@ -19,6 +19,7 @@ familiard summon mine
 | `familiard pick [text] [summon options]`, `-si` | Chooses a pet from a list, most used first, with [fzf](https://github.com/junegunn/fzf) if you have it and numbers otherwise. The text starts the search, like `zi` |
 | `familiard dismiss [id]`, `--all`, `-d` | Sends pets away |
 | `familiard alias [<pet> <alias> \| --remove <alias>]` | Gives a pet another name, or lists them. An alias cannot be another pet's id |
+| `familiard frames <id> --rows N` | Prints a pet's animations as JSON text, for other programs to embed. It does not bring the pet out |
 | `familiard default <id>` | Chooses the default. An alias works too |
 | `familiard remove <id>` | Deletes a pet from the gallery, and sends it away if it is out. It needs the whole id |
 

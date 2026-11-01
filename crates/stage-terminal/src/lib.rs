@@ -100,9 +100,111 @@ pub fn render(sprite: &Sprite, bounds: (u32, u32), rows: u32) -> String {
     art
 }
 
+/// How wide [`render_smooth`] draws a box of `bounds` in `rows` lines.
+pub fn columns_for(bounds: (u32, u32), rows: u32) -> u32 {
+    let scale = bounds.1 as f32 / (rows * 2) as f32;
+    (bounds.0 as f32 / scale).round() as u32
+}
+
+/// Like [`render`], but each half block averages the pixels it covers, because picking one pixel
+/// turns a pet into noise at the few lines it gets inside another program's interface.
+pub fn render_smooth(sprite: &Sprite, bounds: (u32, u32), rows: u32) -> String {
+    let (box_width, box_height) = bounds;
+    let scale = box_height as f32 / (rows * 2) as f32;
+    let columns = columns_for(bounds, rows);
+    let left = box_width.saturating_sub(sprite.width()) / 2;
+    let top = box_height.saturating_sub(sprite.height());
+    let average = |column: u32, half: u32| -> Option<[u8; 3]> {
+        let span = |at: u32| ((at as f32 * scale) as u32, (((at + 1) as f32 * scale).ceil() as u32).max(1));
+        let (from_x, to_x) = span(column);
+        let (from_y, to_y) = span(half);
+        let (mut color, mut alpha, mut cells) = ([0u64; 3], 0u64, 0u64);
+        for y in from_y..to_y {
+            for x in from_x..to_x {
+                cells += 1;
+                let inside = x >= left && y >= top && x - left < sprite.width() && y - top < sprite.height();
+                if !inside {
+                    continue;
+                }
+                let pixel = sprite.pixel(x - left, y - top);
+                let weight = u64::from(pixel[3]);
+                alpha += weight;
+                for (total, channel) in color.iter_mut().zip(pixel) {
+                    *total += u64::from(channel) * weight;
+                }
+            }
+        }
+        (alpha * 2 >= cells * 255 && alpha > 0).then(|| color.map(|total| (total / alpha) as u8))
+    };
+    let mut art = String::new();
+    for row in 0..rows {
+        if row > 0 {
+            art.push('\n');
+        }
+        for column in 0..columns {
+            match (average(column, row * 2), average(column, row * 2 + 1)) {
+                (None, None) => art.push(' '),
+                (Some(up), None) => {
+                    let _ = write!(art, "\x1b[38;2;{};{};{}m\u{2580}\x1b[0m", up[0], up[1], up[2]);
+                }
+                (None, Some(down)) => {
+                    let _ = write!(art, "\x1b[38;2;{};{};{}m\u{2584}\x1b[0m", down[0], down[1], down[2]);
+                }
+                (Some(up), Some(down)) => {
+                    let _ = write!(
+                        art,
+                        "\x1b[38;2;{};{};{};48;2;{};{};{}m\u{2580}\x1b[0m",
+                        up[0], up[1], up[2], down[0], down[1], down[2]
+                    );
+                }
+            }
+        }
+    }
+    art
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn smooth_drawing_averages_what_a_half_block_covers() {
+        // Two pixels squeezed into one half block: half red, half blue, all solid.
+        let sprite = Sprite::new(2, 4, [[200, 0, 0, 255], [0, 0, 100, 255]].repeat(4).concat()).unwrap();
+        let art = render_smooth(&sprite, (2, 4), 1);
+        assert_eq!(art, "\x1b[38;2;100;0;50;48;2;100;0;50m\u{2580}\x1b[0m");
+    }
+
+    #[test]
+    fn smooth_drawing_leaves_mostly_empty_cells_empty_and_ignores_their_color() {
+        // A quarter solid is not enough, and exactly half is, keeping only the solid color.
+        let quarter = Sprite::new(2, 2, vec![9, 9, 9, 255, 200, 200, 200, 0, 200, 200, 200, 0, 200, 200, 200, 0]);
+        assert_eq!(render_smooth(&quarter.unwrap(), (2, 2), 1), " ");
+        let half = Sprite::new(2, 2, vec![9, 9, 9, 255, 200, 200, 200, 0, 9, 9, 9, 255, 200, 200, 200, 0]);
+        assert_eq!(render_smooth(&half.unwrap(), (2, 2), 1), "\x1b[38;2;9;9;9;48;2;9;9;9m\u{2580}\x1b[0m");
+    }
+
+    #[test]
+    fn smooth_drawing_keeps_every_frame_the_same_size() {
+        let small = Sprite::new(1, 1, vec![9, 9, 9, 255]).unwrap();
+        let art = render_smooth(&small, (4, 4), 2);
+        assert_eq!(columns_for((4, 4), 2), 4);
+        let plain: Vec<String> = art.lines().map(|line| {
+            let mut text = String::new();
+            let mut escaped = false;
+            for c in line.chars() {
+                match (escaped, c) {
+                    (true, 'm') => escaped = false,
+                    (true, _) => {}
+                    (false, '\x1b') => escaped = true,
+                    (false, c) => text.push(c),
+                }
+            }
+            text
+        }).collect();
+        assert_eq!(plain.len(), 2);
+        assert!(plain.iter().all(|line| line.chars().count() == 4), "{plain:?}");
+    }
 
     #[test]
     fn the_caption_gets_its_own_line_above_the_art() {

@@ -574,3 +574,39 @@ fn a_first_word_that_fits_nobody_says_so() {
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8(output.stderr).unwrap().contains("no pet 'nadie'"));
 }
+
+#[test]
+fn frames_give_a_pet_as_text_for_other_programs() {
+    let home = Home::new();
+    home.ok(&["add", &demo(), "--as", "mochi"]);
+    home.ok(&["alias", "mochi", "gata"]);
+    let answer: serde_json::Value = serde_json::from_str(&home.ok(&["frames", "gata", "--rows", "6"])).unwrap();
+    assert_eq!(answer["id"], "mochi");
+    assert_eq!(answer["name"], "Demo");
+    assert_eq!(answer["rows"], 6);
+    let columns = answer["columns"].as_u64().unwrap();
+    assert!(columns > 0);
+    for state in ["idle", "working", "waiting", "done"] {
+        let clip = &answer["clips"][state];
+        assert!(clip["fps"].as_u64().unwrap() > 0, "{state}");
+        let frames = clip["frames"].as_array().unwrap();
+        assert!(!frames.is_empty(), "{state}");
+        for frame in frames {
+            assert_eq!(frame.as_str().unwrap().lines().count(), 6, "{state}");
+        }
+    }
+    assert!(!home.is_open("mochi"), "looking at a pet does not bring it out");
+    assert!(!home.0.join("uses.json").exists(), "nor does it count as using it");
+}
+
+#[test]
+fn frames_refuse_what_they_cannot_draw() {
+    let home = Home::new();
+    home.ok(&["add", &demo(), "--as", "mochi"]);
+    assert!(home.fails(&["frames", "moc", "--rows", "6"]).contains("no pet 'moc'"), "no guessing for programs");
+    for rows in ["0", "65", "muchas"] {
+        assert!(home.fails(&["frames", "mochi", "--rows", rows]).contains("--rows must be"), "{rows}");
+    }
+    assert!(home.fails(&["frames", "mochi"]).contains("frames needs"));
+    assert!(home.fails(&["frames"]).contains("frames needs"));
+}
