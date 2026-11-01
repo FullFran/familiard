@@ -543,3 +543,34 @@ fn pick_on_an_empty_gallery_says_so() {
     assert_eq!(output.status.code(), Some(1));
     assert!(String::from_utf8(output.stderr).unwrap().contains("gallery is empty"));
 }
+
+#[test]
+fn si_is_pick_and_a_first_word_narrows_the_list() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let home = Home::new();
+    three_elainas(&home);
+    let mut child = Command::new(env!("CARGO_BIN_EXE_familiard"))
+        .args(["-si", "ela", "--stage", "terminal"])
+        .env("FAMILIARD_HOME", &home.0)
+        .env("PATH", "")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(b"2\n").unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let shown = String::from_utf8(output.stdout).unwrap();
+    assert!(shown.starts_with("1) elaina-2  Demo\n2) elaina-5  Demo\nwhich one?"), "{shown}");
+    assert!(shown.ends_with("elaina-5 is here\n"), "{shown}");
+}
+
+#[test]
+fn a_first_word_that_fits_nobody_says_so() {
+    let home = Home::new();
+    three_elainas(&home);
+    let output = pick(&home, "", &["nadie"]);
+    assert_eq!(output.status.code(), Some(1));
+    assert!(String::from_utf8(output.stderr).unwrap().contains("no pet 'nadie'"));
+}

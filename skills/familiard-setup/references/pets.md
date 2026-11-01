@@ -16,7 +16,7 @@ familiard summon mine
 | `familiard search <text>` | Looks for pets on Petdex |
 | `familiard pets [--json]`, `-l` | Lists the gallery: `*` marks the default, `(open)` what is out |
 | `familiard summon [id] [--here \| --session ID] [--still] [--name TEXT] [--at X,Y]`, `-s` | Brings out a pet, the default if none is named |
-| `familiard pick [summon options]` | Chooses a pet from a list, most used first, with [fzf](https://github.com/junegunn/fzf) if you have it and numbers otherwise |
+| `familiard pick [text] [summon options]`, `-si` | Chooses a pet from a list, most used first, with [fzf](https://github.com/junegunn/fzf) if you have it and numbers otherwise. The text starts the search, like `zi` |
 | `familiard dismiss [id]`, `--all`, `-d` | Sends pets away |
 | `familiard alias [<pet> <alias> \| --remove <alias>]` | Gives a pet another name, or lists them. An alias cannot be another pet's id |
 | `familiard default <id>` | Chooses the default. An alias works too |

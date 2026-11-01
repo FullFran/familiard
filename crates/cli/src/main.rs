@@ -23,7 +23,8 @@ const USAGE: &str = "usage:
                                    --session: follow this exact session, leave when it ends
                                    --still: never walk around on its own
                                    a name can be part of an id, an alias or a pet's name; the one used most wins
-  familiard pick [summon options]  choose a pet from a list, with fzf if you have it
+  familiard pick, -si [text] [summon options]
+                                   choose a pet from a list, with fzf if you have it
   familiard dismiss, -d [id] | --all   send pets away (the default one if no id)
   familiard pets, -l [--json]      list the gallery and which pets are open
   familiard add <folder|petdex:NAME> [--as id]
@@ -465,13 +466,22 @@ fn described(gallery: &Gallery, entry: &Entry) -> String {
 }
 
 /// Lets a person choose a pet, and brings it out with the options given.
-fn pick(args: Vec<String>) -> Result<(), Failure> {
+fn pick(mut args: Vec<String>) -> Result<(), Failure> {
+    let query = if args.first().is_some_and(|arg| !arg.starts_with('-')) { args.remove(0) } else { String::new() };
     let gallery = Gallery::new(&home());
-    let entries = gallery.by_use();
+    let mut entries = gallery.by_use();
     if entries.is_empty() {
         return Err(GalleryError::Empty.into());
     }
     let open = roster().open();
+    if !std::io::stdin().is_terminal() || !has_fzf() {
+        // Without fzf to narrow the list, the text does it here.
+        let wanted = query.to_lowercase();
+        entries.retain(|entry| described(&gallery, entry).to_lowercase().contains(&wanted));
+        if entries.is_empty() {
+            return Err(GalleryError::NotThere(query).into());
+        }
+    }
     let lines: Vec<String> = entries
         .iter()
         .map(|entry| {
@@ -479,7 +489,7 @@ fn pick(args: Vec<String>) -> Result<(), Failure> {
             format!("{}{state}", described(&gallery, entry))
         })
         .collect();
-    let chosen = match pick_with_fzf(&lines) {
+    let chosen = match pick_with_fzf(&lines, &query) {
         Some(chosen) => chosen,
         None => pick_from_numbers(&lines)?,
     };
@@ -492,13 +502,17 @@ fn pick(args: Vec<String>) -> Result<(), Failure> {
     summon_pet(summon_args)
 }
 
+fn has_fzf() -> bool {
+    Command::new("fzf").arg("--version").stdout(Stdio::null()).stderr(Stdio::null()).status().is_ok()
+}
+
 /// None if fzf is not there to ask, or nobody is. Otherwise whichever line was chosen, if any.
-fn pick_with_fzf(lines: &[String]) -> Option<Option<usize>> {
+fn pick_with_fzf(lines: &[String], query: &str) -> Option<Option<usize>> {
     if !std::io::stdin().is_terminal() {
         return None;
     }
     let mut child = Command::new("fzf")
-        .args(["--no-sort", "--height=40%", "--reverse", "--prompt=pet> "])
+        .args(["--no-sort", "--height=40%", "--reverse", "--prompt=pet> ", "--query", query])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .spawn()
@@ -642,7 +656,7 @@ fn dispatch(mut args: Vec<String>) -> Result<(), Failure> {
         "summon" | "-s" => summon_pet(args),
         "dismiss" | "-d" => dismiss(args),
         "pets" | "-l" => pets(args),
-        "pick" => pick(args),
+        "pick" | "-si" => pick(args),
         "alias" => alias(args),
         "add" => add(args),
         "search" => petdex::search(args),

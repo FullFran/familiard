@@ -51,7 +51,7 @@ familiard pets                   # what you have and what is open (-l; --json fo
 familiard summon                 # the default pet (-s)
 familiard summon mochi           # any other, as many at once as you like
 familiard summon moc             # part of a name is enough: the one you use most wins
-familiard pick                   # choose from a list (fzf if you have it)
+familiard -si                    # choose from a list, like zi (fzf if you have it; or: pick)
 familiard alias mochi gata       # another name for it
 familiard summon mochi --here    # follows only the next session in this folder, then leaves
 familiard summon mochi --name "Bug del login"   # with a caption over its head
