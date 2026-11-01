@@ -23,8 +23,8 @@ function page(rows, options = {}) {
     asked: [],
     querySelector(selector) {
       this.asked.push(selector);
-      if (selector === "[data-sidebar-indicator]") {
-        return Object.values(rows).some(Boolean) ? {} : null;
+      if (selector === '[data-sidebar-indicator="working"]') {
+        return Object.values(rows).includes("working") ? {} : null;
       }
       if (selector.includes("stop") || selector.includes("Stop") || selector.includes("Detener")) {
         return stop ? { hasAttribute: () => false } : null;
@@ -241,6 +241,48 @@ test("a row that catches up with its stop button leaves it believed afterwards",
   options.closed = true;
   watcher.tick();
   assert.deepEqual(sent, ["a:visit", "a:working"], "closing the sidebar is not the answer ending");
+});
+
+test("a row that goes unknown is not done when no stop button was ever seen", () => {
+  // A page in a language the stop button table does not cover: only the row can say.
+  const rows = { a: "working" };
+  const options = {};
+  const shown = { current: "a" };
+  const { sent, watcher } = open(page(rows, options), shown);
+  watcher.tick();
+  options.closed = true;
+  watcher.tick();
+  assert.deepEqual(sent, ["a:visit", "a:working"]);
+  options.closed = false;
+  rows.a = null;
+  watcher.tick();
+  assert.deepEqual(sent, ["a:visit", "a:working", "a:done"], "the row coming back can tell");
+});
+
+test("a renamed state value leaves the open conversation to its stop button", () => {
+  // The attribute is there, but no row ever says "working" the way this extension knows it.
+  const rows = { a: "generating" };
+  const shown = { current: "a" };
+  const { sent, watcher } = open(page(rows, { stop: true }), shown);
+  watcher.tick();
+  assert.deepEqual(sent, ["a:visit", "a:working"]);
+});
+
+test("unloading mid-answer stops claiming it works, even if the row could see it", () => {
+  const rows = { a: "working", b: null };
+  const shown = { current: "a" };
+  const { sent, watcher } = open(page(rows), shown);
+  watcher.tick();
+  watcher.leave({ unloading: true });
+  assert.deepEqual(sent, ["a:visit", "a:working", "a:registered"]);
+});
+
+test("unloading stops claiming conversations out of sight work too", () => {
+  const rows = { a: "working", b: null };
+  const { sent, watcher } = watch(page(rows), { conversations: ["a", "b"] });
+  watcher.tick();
+  watcher.leave();
+  assert.deepEqual(sent, ["a:working", "a:registered"]);
 });
 
 test("leaving a generating conversation the sidebar can see does not stop it working", () => {

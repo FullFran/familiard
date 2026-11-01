@@ -63,8 +63,10 @@ Things to know:
   --as other-name` adds the same pack twice.
 - A conversation has one pet at a time.
 - **Keep the sidebar open to follow several conversations.** A closed sidebar stops updating its
-  rows. The conversation on screen then goes by its stop button, and a conversation out of sight
-  keeps working until you reopen the sidebar, which is when it celebrates. After moving between
+  rows. The conversation on screen then goes by its stop button. A conversation out of sight that
+  was already being followed keeps working until you reopen the sidebar, which is when it
+  celebrates; one you leave with the sidebar already closed stops working without celebrating.
+  After moving between
   conversations the stop button can also be wrong, so with the sidebar closed a conversation you
   moved to may not start working.
 - A tab only knows about the conversations answering in that tab. Another tab's answers do not
@@ -93,7 +95,7 @@ Things to know:
 **It never reads** your messages, what you are typing, cookies, tokens or request bodies. It makes
 no network requests. For a conversation you did not bring a pet to, it sends nothing at all and
 does not look at the stop button or its row. The only thing it asks of the page as a whole is
-whether any row carries that attribute, without looking at which.
+whether any row says `working`, without looking at which.
 
 **It sends**, only to the familiard on your own machine: the conversation's id, its state (`working`,
 `done`, `ended`), and the pet and name you chose. Open pets hear those over loopback, like any
@@ -118,9 +120,9 @@ stop following conversations out of sight. Its values live in `extension/src/sid
 4. Add a button to the first test in `extension/test/detect.test.js`, and run `node --test` in `extension/`.
 5. Reload the extension.
 
-A pet only knows about a conversation while its tab shows it. If you move to another conversation
-while one is answering, or reload the tab, its pet stops working without celebrating, because that
-answer can no longer be seen. Come back while it is still answering and the pet picks it up again.
+A pet follows a conversation through its tab's sidebar when you move to another one. If the sidebar
+cannot see it, or you reload the tab, its pet stops working without celebrating, because that answer
+can no longer be seen. Come back while it is still answering and the pet picks it up again.
 
 chatgpt.com has been seen with no `data-testid` on this button, only an `aria-label` in the page's
 language: `Detener` in Spanish, which is the one checked on the real site. `Stop` for English is

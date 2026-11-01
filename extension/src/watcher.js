@@ -21,21 +21,30 @@
     let current = null;
     let tracker = null;
     let staleStop = false;
+    let stopSeen = false;
 
     /** The row when it can say. Otherwise the stop button, unless the row already disproved this
-     *  very button, which then says nothing until it goes away. */
+     *  very button, which then says nothing until it goes away. And with neither, an answer that
+     *  never showed a stop button cannot be said to have ended by not showing one: null. */
     function generating(conversation) {
       const row = rowSays(conversation);
       const stop = detect.isGenerating(doc);
       if (row === true || !stop) staleStop = false;
       else if (row === false) staleStop = true;
-      return row ?? (stop && !staleStop);
+      if (!tracker.generating) stopSeen = false;
+      if (stop && !staleStop) stopSeen = true;
+      if (row !== null) return row;
+      if (tracker.generating && !stopSeen) return null;
+      return stop && !staleStop;
     }
 
     /** A conversation out of sight may still be answering, or may finish unseen, so nothing here
-     *  can say. "registered" only stops claiming it works: never "done", which would celebrate. */
-    function leave() {
-      if (current !== null && tracker.generating && rowSays(current) !== true) emit(current, "registered");
+     *  can say. "registered" only stops claiming it works: never "done", which would celebrate.
+     *  Moving within the page leaves the row to follow it; unloading ends the row's news as well. */
+    function leave({ unloading = false } = {}) {
+      if (current !== null && tracker.generating && (unloading || rowSays(current) !== true)) {
+        emit(current, "registered");
+      }
       current = null;
       tracker = null;
     }
@@ -57,9 +66,11 @@
           current = conversation;
           tracker = detect.createTracker();
           staleStop = false;
+          stopSeen = false;
           emit(conversation, "visit");
         }
-        const change = tracker.observe(generating(conversation));
+        const now = generating(conversation);
+        const change = now === null ? null : tracker.observe(now);
         if (change) emit(conversation, change);
       },
     };

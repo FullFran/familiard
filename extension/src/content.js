@@ -52,7 +52,10 @@
   }
 
   // Reloading or unloading the tab ends this script, and with it any news of the answer.
-  addEventListener("pagehide", () => watcher.leave());
+  addEventListener("pagehide", () => {
+    watcher.leave({ unloading: true });
+    sidebar.leave();
+  });
 
   api.storage.local.get("bound").then((stored) => apply(stored.bound));
   api.storage.onChanged.addListener((changes, area) => {

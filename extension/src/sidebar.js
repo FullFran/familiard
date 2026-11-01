@@ -9,7 +9,6 @@
   // Seen on the real page: a row gains data-sidebar-indicator="working" while it generates, and
   // "unread" when it finishes out of sight. An idle row has no such attribute at all.
   const ROW = "[data-sidebar-chatgpt-conversation-key]";
-  const INDICATOR = "[data-sidebar-indicator]";
   const WORKING = '[data-sidebar-indicator="working"]';
 
   /**
@@ -17,16 +16,16 @@
    * can be said, which is never "finished": the row may be scrolled out of the list, the sidebar
    * closed, or this an older sidebar.
    *
-   * An idle row looks the same as a page where ChatGPT renamed the attribute, so a row is only
-   * believed once this page has shown the attribute at all. Until then everything is null, and
-   * the extension behaves as it did with the stop button alone.
+   * An idle row looks the same as a page where ChatGPT renamed the attribute or its value, so a
+   * row is only believed once this page has shown a row working. Until then everything is null,
+   * and the extension behaves as it did with the stop button alone.
    */
   function createRowReader(doc) {
-    let attributeExists = false;
+    let stateIsKnown = false;
     return {
       isBusy(conversation) {
-        attributeExists = attributeExists || doc.querySelector(INDICATOR) !== null;
-        if (!attributeExists) return null;
+        stateIsKnown = stateIsKnown || doc.querySelector(WORKING) !== null;
+        if (!stateIsKnown) return null;
         const row = doc.querySelector(`a[href$="/c/${conversation}"]`)?.closest(ROW);
         // A closed sidebar keeps its rows in the page, frozen in their last state and with no box.
         if (!row || row.getClientRects().length === 0) return null;
@@ -39,11 +38,19 @@
    * @param isBusy reads a row
    * @param conversations gives the conversations with a pet
    * @param open gives the conversation on screen, which its own watcher follows
-   * @param emit receives (conversation, "working" | "done")
+   * @param emit receives (conversation, "working" | "done" | "registered")
    */
   function createSidebarWatcher({ isBusy, conversations, open, emit }) {
     const trackers = new Map();
     return {
+      /** The page is going away, and with it any news of what these were answering. */
+      leave() {
+        for (const [conversation, tracker] of trackers) {
+          if (tracker.generating) emit(conversation, "registered");
+        }
+        trackers.clear();
+      },
+
       tick() {
         const shown = open();
         for (const conversation of [...trackers.keys()]) {
