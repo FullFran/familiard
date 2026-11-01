@@ -16,6 +16,10 @@ pub type Failure = Box<dyn Error + Send + Sync>;
 const MAX_CAPTION_WIDTH: u32 = 240;
 /// Pixels between the caption and the tallest frame of the pet.
 const CAPTION_GAP: u32 = 4;
+/// How long a menu nobody pressed stays open. Nothing tells a pet about a click outside it.
+const MENU_TIME: Duration = Duration::from_secs(4);
+/// The menu when there is nothing to write it with: a dark square with a cross.
+const PLAIN_MENU_SIZE: u32 = 20;
 
 /// Driven port: where a pet comes from.
 pub trait PetSource {
@@ -84,6 +88,19 @@ pub struct Player {
     caption: Option<Caption>,
     bounds: (u32, u32),
     life: Life,
+    sent_away: bool,
+    menu: Sprite,
+    menu_left: Option<Duration>,
+}
+
+fn plain_menu() -> Sprite {
+    let size = PLAIN_MENU_SIZE;
+    let last = size - 1;
+    let on_cross = |x: u32, y: u32| (5..=last - 5).contains(&x) && (x.abs_diff(y) <= 1 || (x + y).abs_diff(last) <= 1);
+    let pixels = (0..size * size)
+        .flat_map(|at| if on_cross(at % size, at / size) { [245, 245, 245, 255] } else { [28, 28, 34, 230] })
+        .collect();
+    Sprite::new(size, size, pixels).expect("the pixels match the size")
 }
 
 impl Player {
@@ -96,6 +113,9 @@ impl Player {
             caption: None,
             bounds,
             life: Life::new(chance()),
+            sent_away: false,
+            menu: plain_menu(),
+            menu_left: None,
         }
     }
 
@@ -126,6 +146,13 @@ impl Player {
         self
     }
 
+    /// Follows only the next session to report from this terminal pane, and leaves when that
+    /// session ends.
+    pub fn following_pane(mut self, pane: impl Into<String>) -> Self {
+        self.activity = Activity::following_pane(pane);
+        self
+    }
+
     /// Shows `label` and the pet's state above its head. The captioner is only needed here:
     /// every caption this pet can show is drawn now, so a stage never waits for a font and
     /// the font does not stay in memory. The box also grows here, once, to hold the widest
@@ -144,6 +171,14 @@ impl Player {
         self
     }
 
+    /// Writes the menu's one choice, growing the box if it does not fit. Like a caption, it is
+    /// drawn now so that the font does not stay in memory. Call it after [`Player::captioned`].
+    pub fn with_menu_label(mut self, label: &str, captioner: &dyn Captioner) -> Self {
+        self.menu = captioner.draw(label);
+        self.bounds = (self.bounds.0.max(self.menu.width()), self.bounds.1.max(self.menu.height()));
+        self
+    }
+
     /// The box a stage needs so that no frame or caption ever has to resize it.
     pub fn bounds(&self) -> (u32, u32) {
         self.bounds
@@ -159,9 +194,45 @@ impl Player {
         self.caption.as_ref().map(Caption::text)
     }
 
-    /// Whether the pet should go: its session ended. A stage ends its loop when it sees this.
+    /// A right click: opens the menu, or closes it if it was open. Returns whether to paint.
+    /// A stage with no pointer never calls this.
+    pub fn open_menu(&mut self) -> bool {
+        self.menu_left = match self.menu_left {
+            Some(_) => None,
+            None => Some(MENU_TIME),
+        };
+        true
+    }
+
+    /// Returns whether there was a menu to close, and so whether to paint.
+    pub fn close_menu(&mut self) -> bool {
+        self.menu_left.take().is_some()
+    }
+
+    /// Where the open menu is inside the box, as left, top, width and height. A stage that
+    /// decides what takes clicks has to add this to them.
+    pub fn menu_area(&self) -> Option<(u32, u32, u32, u32)> {
+        self.menu_left?;
+        let (width, height) = self.bounds;
+        let (menu_width, menu_height) = (self.menu.width().min(width), self.menu.height().min(height));
+        let middle = height.saturating_sub(self.companion.pet().bounds().1 / 2);
+        let top = middle.saturating_sub(menu_height / 2).min(height - menu_height);
+        Some(((width - menu_width) / 2, top, menu_width, menu_height))
+    }
+
+    /// A press at this point of the box. On the open menu it sends the pet away, which is the
+    /// menu's one choice, and returns true: the press is then not for the pet.
+    pub fn choose_at(&mut self, x: u32, y: u32) -> bool {
+        let Some((left, top, width, height)) = self.menu_area() else { return false };
+        let chosen = (left..left + width).contains(&x) && (top..top + height).contains(&y);
+        self.sent_away |= chosen;
+        chosen
+    }
+
+    /// Whether the pet should go: its session ended, or it was sent away. A stage ends its loop
+    /// when it sees this.
     pub fn leaving(&self) -> bool {
-        self.activity.finished()
+        self.sent_away || self.activity.finished()
     }
 
     pub fn sprite(&self) -> &Sprite {
@@ -176,6 +247,7 @@ impl Player {
             heard |= self.activity.record(report);
         }
         self.activity.advance(elapsed);
+        let menu_closed = self.count_down_menu(elapsed);
         let mood = self.activity.mood();
         let new_mood = mood != self.companion.mood();
         self.companion.feel(mood);
@@ -187,7 +259,14 @@ impl Player {
         let new_caption = self.caption.as_mut().is_some_and(|caption| caption.show(mood));
         // A new frame of the mood's clip means nothing while an act covers it.
         let acting = self.life.sprite(self.companion.pet()).is_some();
-        (new_mood || (new_frame && !acting) || new_life || new_caption).then(|| self.sprite())
+        (new_mood || (new_frame && !acting) || new_life || new_caption || menu_closed).then(|| self.sprite())
+    }
+
+    /// Returns whether the menu has just run out of time.
+    fn count_down_menu(&mut self, elapsed: Duration) -> bool {
+        let Some(left) = self.menu_left else { return false };
+        self.menu_left = Some(left.saturating_sub(elapsed)).filter(|left| !left.is_zero());
+        self.menu_left.is_none()
     }
 
     /// Tells the pet what the pointer did to it. Returns whether to paint again. A stage with
@@ -201,6 +280,9 @@ impl Player {
     /// answers with [`Player::walked`]. A stage that cannot move the pet asks for
     /// [`Player::still`] and never calls this.
     pub fn step(&mut self) -> Option<i32> {
+        if self.menu_left.is_some() {
+            return None; // it would carry the menu away from under the pointer
+        }
         self.life.step()
     }
 
@@ -216,11 +298,15 @@ impl Player {
         if let Some(caption) = &self.caption {
             paint_caption_bgra(canvas, self.bounds, caption.sprite());
         }
+        if let Some((left, top, ..)) = self.menu_area() {
+            paint_over_bgra(canvas, self.bounds, &self.menu, (left, top));
+        }
         at
     }
 
     pub fn next_frame_in(&self) -> Duration {
-        self.life.next_in(self.companion.pet()).unwrap_or_else(|| self.companion.next_frame_in())
+        let next = self.life.next_in(self.companion.pet()).unwrap_or_else(|| self.companion.next_frame_in());
+        self.menu_left.map_or(next, |left| next.min(left))
     }
 }
 
@@ -267,11 +353,18 @@ pub fn paint_bgra(canvas: &mut [u8], box_size: (u32, u32), sprite: &Sprite) -> (
 /// Composites a caption over what is already on the canvas, at the top center of the box.
 /// Returns where it landed.
 pub fn paint_caption_bgra(canvas: &mut [u8], box_size: (u32, u32), caption: &Sprite) -> (u32, u32) {
+    let left = box_size.0.saturating_sub(caption.width()) / 2;
+    paint_over_bgra(canvas, box_size, caption, (left, 0));
+    (left, 0)
+}
+
+/// Composites a sprite over what is already on the canvas, cutting what does not fit.
+fn paint_over_bgra(canvas: &mut [u8], box_size: (u32, u32), sprite: &Sprite, (left, top): (u32, u32)) {
     let (width, height) = box_size;
-    let left = width.saturating_sub(caption.width()) / 2;
-    let visible = caption.width().min(width) as usize * 4;
-    for (y, row) in caption.rgba().chunks_exact(caption.width() as usize * 4).take(height as usize).enumerate() {
-        let start = (y * width as usize + left as usize) * 4;
+    let visible = sprite.width().min(width - left) as usize * 4;
+    let rows = sprite.rgba().chunks_exact(sprite.width() as usize * 4).take((height - top) as usize);
+    for (y, row) in rows.enumerate() {
+        let start = ((top as usize + y) * width as usize + left as usize) * 4;
         for (pixel, out) in row[..visible].chunks_exact(4).zip(canvas[start..].chunks_exact_mut(4)) {
             let alpha = pixel[3] as u32;
             let over = |source: u8, below: u8| {
@@ -285,7 +378,6 @@ pub fn paint_caption_bgra(canvas: &mut [u8], box_size: (u32, u32), caption: &Spr
             ]);
         }
     }
-    (left, 0)
 }
 
 /// The main use case: bring a pet to a stage. `prepare` sets what makes this pet particular,
@@ -357,7 +449,7 @@ mod tests {
         let (outbox, inbox) = channel();
         let mut player = Player::new(Pet::new("p", clips).unwrap(), inbox);
         assert!(player.tick(Duration::ZERO).is_none());
-        outbox.send(Report { session: "a".into(), signal: Signal::Working, folder: None }).unwrap();
+        outbox.send(Report { session: "a".into(), signal: Signal::Working, folder: None, pane: None }).unwrap();
         assert_eq!(player.tick(Duration::ZERO).unwrap().rgba()[0], 9);
         assert!(player.tick(Duration::ZERO).is_none());
     }
@@ -413,7 +505,7 @@ mod tests {
     }
 
     fn says(session: &str, signal: Signal) -> Report {
-        Report { session: session.into(), signal, folder: Some("/work/app".into()) }
+        Report { session: session.into(), signal, folder: Some("/work/app".into()), pane: None }
     }
 
     #[test]
@@ -545,7 +637,7 @@ mod tests {
         let (outbox, inbox) = channel();
         let mut player = Player::new(pet_of_size(1, 1), inbox).following("/work/app");
         assert!(!player.leaving());
-        outbox.send(Report { session: "other".into(), signal: Signal::Working, folder: Some("/else".into()) }).unwrap();
+        outbox.send(Report { session: "other".into(), signal: Signal::Working, folder: Some("/else".into()), pane: None }).unwrap();
         outbox.send(says("mine", Signal::Working)).unwrap();
         player.tick(Duration::ZERO);
         assert_eq!(player.companion.mood(), Mood::Working);
@@ -655,7 +747,7 @@ mod tests {
         player.tick(Duration::from_secs(300));
         player.tick(Duration::from_secs(10));
         assert_eq!(red(&player), 74);
-        outbox.send(Report { session: "other".into(), signal: Signal::Working, folder: Some("/else".into()) }).unwrap();
+        outbox.send(Report { session: "other".into(), signal: Signal::Working, folder: Some("/else".into()), pane: None }).unwrap();
         player.tick(Duration::ZERO);
         assert_eq!(red(&player), 74, "still asleep");
         outbox.send(says("mine", Signal::Working)).unwrap();
@@ -678,6 +770,99 @@ mod tests {
         }
         outbox.send(says("a", Signal::Registered)).unwrap();
         assert_eq!(player.tick(Duration::ZERO).unwrap().rgba()[0], 80);
+    }
+
+    fn with_menu() -> Player {
+        Player::new(pet_of_size(100, 100), channel().1).with_menu_label("Dismiss", &CountingCaptioner(Default::default()))
+    }
+
+    #[test]
+    fn a_right_click_opens_the_menu_and_does_not_send_the_pet_away() {
+        let mut player = with_menu();
+        assert_eq!(player.menu_area(), None);
+        assert!(player.open_menu());
+        assert_eq!(player.menu_area(), Some((46, 45, 7, 10)));
+        assert!(!player.leaving());
+    }
+
+    #[test]
+    fn pressing_the_menu_sends_the_pet_away() {
+        let mut player = with_menu();
+        player.open_menu();
+        assert!(player.choose_at(46, 45));
+        assert!(player.leaving());
+    }
+
+    #[test]
+    fn pressing_beside_the_menu_or_with_it_closed_does_nothing() {
+        let mut player = with_menu();
+        assert!(!player.choose_at(46, 45), "closed");
+        player.open_menu();
+        assert!(!player.choose_at(45, 45));
+        assert!(!player.choose_at(53, 45));
+        assert!(!player.choose_at(46, 55));
+        assert!(!player.leaving());
+    }
+
+    #[test]
+    fn the_menu_closes_by_itself_after_four_seconds_and_says_to_paint() {
+        let mut player = with_menu();
+        player.open_menu();
+        assert!(player.next_frame_in() <= Duration::from_secs(4));
+        player.tick(Duration::from_millis(3999));
+        assert!(player.menu_area().is_some());
+        assert!(player.tick(Duration::from_millis(1)).is_some());
+        assert_eq!(player.menu_area(), None);
+        assert!(!player.leaving());
+    }
+
+    #[test]
+    fn a_second_right_click_or_a_press_elsewhere_closes_the_menu() {
+        let mut player = with_menu();
+        player.open_menu();
+        assert!(player.open_menu());
+        assert_eq!(player.menu_area(), None);
+        assert!(!player.close_menu(), "nothing to close");
+        player.open_menu();
+        assert!(player.close_menu());
+        assert_eq!(player.menu_area(), None);
+    }
+
+    #[test]
+    fn the_menu_is_painted_only_while_open() {
+        let mut player = with_menu();
+        let (width, height) = player.bounds();
+        let mut canvas = vec![0; (width * height * 4) as usize];
+        let pixel = (45 * width + 46) as usize * 4;
+        player.paint(&mut canvas);
+        assert_eq!(&canvas[pixel..pixel + 3], &[50, 100, 200], "the pet's own color, in BGR");
+        player.open_menu();
+        player.paint(&mut canvas);
+        assert_eq!(&canvas[pixel..pixel + 3], &[30, 20, 10], "the menu's color, in BGR");
+    }
+
+    #[test]
+    fn a_pet_does_not_walk_away_from_its_open_menu() {
+        let (mut player, _outbox) = lively();
+        player.tick(Duration::from_secs(60));
+        player.open_menu();
+        assert_eq!(player.step(), None);
+    }
+
+    #[test]
+    fn without_a_label_the_menu_is_still_there_to_press() {
+        let mut player = Player::new(pet_of_size(100, 100), channel().1);
+        player.open_menu();
+        let (left, top, ..) = player.menu_area().unwrap();
+        assert!(player.choose_at(left, top));
+        assert!(player.leaving());
+    }
+
+    #[test]
+    fn the_box_grows_to_hold_a_menu_wider_than_the_pet() {
+        let player = Player::new(pet_of_size(4, 4), channel().1)
+            .with_menu_label("Dismiss", &CountingCaptioner(Default::default()));
+        assert_eq!(player.bounds(), (7, 10));
     }
 
     #[test]

@@ -27,6 +27,8 @@ pub struct Report {
     pub signal: Signal,
     /// Where the session runs, when the agent says so.
     pub folder: Option<String>,
+    /// The terminal pane the session runs in, when it runs inside a multiplexer.
+    pub pane: Option<String>,
 }
 
 #[derive(Debug)]
@@ -41,6 +43,8 @@ enum Interest {
     Everything,
     /// Waiting for the next session to report from this folder or below it.
     Folder(String),
+    /// Waiting for the next session to report from this terminal pane.
+    Pane(String),
     Session(String),
 }
 
@@ -80,19 +84,26 @@ impl Activity {
         Self { interest: Interest::Session(session.into()), ..Self::default() }
     }
 
+    /// Hears only the next session to report from this terminal pane, and then only that
+    /// session. Two agents in one folder can each have their own pet this way.
+    pub fn following_pane(pane: impl Into<String>) -> Self {
+        Self { interest: Interest::Pane(pane.into()), ..Self::default() }
+    }
+
     fn cares_about(&mut self, report: &Report) -> bool {
-        match &self.interest {
-            Interest::Everything => true,
-            Interest::Session(session) => *session == report.session,
+        let matches = match &self.interest {
+            Interest::Everything => return true,
+            Interest::Session(session) => return *session == report.session,
             Interest::Folder(folder) => {
-                let inside = |reported: &String| Path::new(reported).starts_with(folder);
-                let claims = report.signal != Signal::Ended && report.folder.as_ref().is_some_and(inside);
-                if claims {
-                    self.interest = Interest::Session(report.session.clone());
-                }
-                claims
+                report.folder.as_ref().is_some_and(|reported| Path::new(reported).starts_with(folder))
             }
+            Interest::Pane(pane) => report.pane.as_ref() == Some(pane),
+        };
+        let claims = matches && report.signal != Signal::Ended;
+        if claims {
+            self.interest = Interest::Session(report.session.clone());
         }
+        claims
     }
 
     /// Returns whether this pet cares about the report: a pet bound to one session does not
@@ -166,11 +177,11 @@ mod tests {
     use super::*;
 
     fn report(session: &str, signal: Signal) -> Report {
-        Report { session: session.into(), signal, folder: None }
+        Report { session: session.into(), signal, folder: None, pane: None }
     }
 
     fn from(session: &str, folder: &str, signal: Signal) -> Report {
-        Report { session: session.into(), signal, folder: Some(folder.into()) }
+        Report { session: session.into(), signal, folder: Some(folder.into()), pane: None }
     }
 
     fn activity(reports: &[(&str, Signal)]) -> Activity {
@@ -254,6 +265,32 @@ mod tests {
         assert_eq!(pet.sessions.len(), MAX_SESSIONS);
         pet.record(report("s0", Signal::Working));
         assert_eq!(pet.mood(), Mood::Working);
+    }
+
+    fn in_pane(session: &str, pane: &str, signal: Signal) -> Report {
+        Report { session: session.into(), signal, folder: Some("/work/app".into()), pane: Some(pane.into()) }
+    }
+
+    #[test]
+    fn a_pet_for_a_pane_ignores_the_same_folder_in_another_pane_until_its_own_reports() {
+        let mut pet = Activity::following_pane("tmux:%1");
+        pet.record(in_pane("next-door", "tmux:%2", Signal::Working));
+        pet.record(from("no-pane", "/work/app", Signal::Working));
+        assert_eq!(pet.mood(), Mood::Idle);
+        pet.record(in_pane("mine", "tmux:%1", Signal::Working));
+        assert_eq!(pet.mood(), Mood::Working);
+    }
+
+    #[test]
+    fn the_first_report_from_the_pane_claims_the_pet_and_it_leaves_with_that_session() {
+        let mut pet = Activity::following_pane("tmux:%1");
+        pet.record(in_pane("before", "tmux:%1", Signal::Ended));
+        assert!(!pet.finished(), "a session ending is not a claim");
+        pet.record(in_pane("mine", "tmux:%1", Signal::Waiting));
+        pet.record(in_pane("second", "tmux:%1", Signal::Working));
+        assert_eq!(pet.mood(), Mood::Waiting);
+        pet.record(in_pane("mine", "tmux:%1", Signal::Ended));
+        assert!(pet.finished());
     }
 
     #[test]

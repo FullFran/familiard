@@ -155,7 +155,7 @@ mod tests {
         let reserved = player.bounds();
         assert!(reserved.0 <= 240, "{reserved:?}");
         for signal in [Signal::Working, Signal::Waiting, Signal::Done] {
-            outbox.send(Report { session: "s".into(), signal, folder: None }).unwrap();
+            outbox.send(Report { session: "s".into(), signal, folder: None, pane: None }).unwrap();
             player.tick(Duration::ZERO);
             assert_eq!(player.bounds(), reserved);
             let text = player.caption_text().unwrap();

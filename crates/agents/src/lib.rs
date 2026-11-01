@@ -82,7 +82,7 @@ pub fn interpret(
     let folder = first(&["cwd", "projectRoot"])
         .or_else(|| first_of_list(&["workspace_roots", "workspacePaths"]))
         .or_else(|| folder.filter(|text| !text.is_empty()).map(String::from));
-    Some(Report { session: format!("{agent}:{session}"), signal, folder })
+    Some(Report { session: format!("{agent}:{session}"), signal, folder, pane: None })
 }
 
 /// Antigravity sends no event name, so the fields present say what happened.
@@ -103,6 +103,9 @@ struct Line {
     /// Absent in lines from older hooks, and when the session's folder is unknown.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     folder: Option<String>,
+    /// Absent in lines from older hooks, and outside a terminal multiplexer.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pane: Option<String>,
 }
 
 fn name_of(signal: Signal) -> &'static str {
@@ -117,7 +120,7 @@ fn name_of(signal: Signal) -> &'static str {
 
 fn decode(line: &str) -> Option<Report> {
     let line: Line = serde_json::from_str(line).ok()?;
-    Some(Report { signal: signal_for("", &line.signal)?, session: line.session, folder: line.folder })
+    Some(Report { signal: signal_for("", &line.signal)?, session: line.session, folder: line.folder, pane: line.pane })
 }
 
 fn connect(port: u16) -> std::io::Result<TcpStream> {
@@ -181,6 +184,7 @@ impl Roster {
             session: report.session.clone(),
             signal: name_of(report.signal).into(),
             folder: report.folder.clone(),
+            pane: report.pane.clone(),
         };
         let Ok(text) = serde_json::to_string(&line) else { return };
         for (id, port) in self.entries() {
@@ -289,14 +293,14 @@ mod tests {
     fn reads_the_session_from_the_payload_and_keeps_agents_apart() {
         let payload = r#"{"hook_event_name":"Stop","session_id":"abc","cwd":"/x"}"#;
         let report = interpret("claude", None, None, None, payload).unwrap();
-        assert_eq!(report, Report { session: "claude:abc".into(), signal: Signal::Done, folder: Some("/x".into()) });
+        assert_eq!(report, Report { session: "claude:abc".into(), signal: Signal::Done, folder: Some("/x".into()), pane: None });
     }
 
     #[test]
     fn flags_win_over_the_payload() {
         let payload = r#"{"hook_event_name":"Stop","session_id":"abc"}"#;
         let report = interpret("pi", Some("working"), Some("s1"), None, payload).unwrap();
-        assert_eq!(report, Report { session: "pi:s1".into(), signal: Signal::Working, folder: None });
+        assert_eq!(report, Report { session: "pi:s1".into(), signal: Signal::Working, folder: None, pane: None });
     }
 
     #[test]
@@ -326,7 +330,7 @@ mod tests {
     #[test]
     fn a_line_from_an_older_hook_still_works_and_a_new_line_carries_the_folder() {
         let old = decode(r#"{"session":"claude:s","signal":"working"}"#).unwrap();
-        assert_eq!(old, Report { session: "claude:s".into(), signal: Signal::Working, folder: None });
+        assert_eq!(old, Report { session: "claude:s".into(), signal: Signal::Working, folder: None, pane: None });
         let new = decode(r#"{"session":"claude:s","signal":"done","folder":"/x"}"#).unwrap();
         assert_eq!(new.folder.as_deref(), Some("/x"));
     }
@@ -337,7 +341,7 @@ mod tests {
         let (outbox, inbox) = channel();
         Box::new(LocalFeed::new(roster.clone(), "p")).listen(outbox).unwrap();
         let folder = format!("/{}", "x".repeat(4000));
-        let report = Report { session: "s".into(), signal: Signal::Done, folder: Some(folder) };
+        let report = Report { session: "s".into(), signal: Signal::Done, folder: Some(folder), pane: None };
         roster.broadcast(&report);
         assert_eq!(inbox.recv_timeout(Duration::from_secs(2)).unwrap(), report);
     }
@@ -372,7 +376,7 @@ mod tests {
         Box::new(LocalFeed::new(roster.clone(), "a")).listen(first_outbox).unwrap();
         Box::new(LocalFeed::new(roster.clone(), "b")).listen(second_outbox).unwrap();
         assert_eq!(roster.open(), ["a", "b"]);
-        let report = Report { session: "claude:a b".into(), signal: Signal::Waiting, folder: Some("/x y/z".into()) };
+        let report = Report { session: "claude:a b".into(), signal: Signal::Waiting, folder: Some("/x y/z".into()), pane: None };
         roster.broadcast(&report);
         assert_eq!(first.recv_timeout(Duration::from_secs(2)).unwrap(), report);
         assert_eq!(second.recv_timeout(Duration::from_secs(2)).unwrap(), report);
@@ -386,7 +390,7 @@ mod tests {
         assert!(roster.open().is_empty());
         assert!(roster.entries().is_empty());
         roster.register("gone", free).unwrap();
-        roster.broadcast(&Report { session: "s".into(), signal: Signal::Done, folder: None });
+        roster.broadcast(&Report { session: "s".into(), signal: Signal::Done, folder: None, pane: None });
         assert!(roster.entries().is_empty());
         assert!(!roster.dismiss("gone"));
     }
@@ -394,7 +398,7 @@ mod tests {
     #[test]
     fn nobody_home_is_not_an_error() {
         let roster = roster();
-        roster.broadcast(&Report { session: "s".into(), signal: Signal::Done, folder: None });
+        roster.broadcast(&Report { session: "s".into(), signal: Signal::Done, folder: None, pane: None });
         assert!(roster.open().is_empty());
         assert!(!roster.dismiss("nobody"));
     }
@@ -406,7 +410,7 @@ mod tests {
         Box::new(LocalFeed::new(roster.clone(), "p")).listen(outbox).unwrap();
         let port = roster.entries()[0].1;
         let silent: Vec<_> = (0..20).map(|_| connect(port).unwrap()).collect();
-        let report = Report { session: "s".into(), signal: Signal::Done, folder: None };
+        let report = Report { session: "s".into(), signal: Signal::Done, folder: None, pane: None };
         roster.broadcast(&report);
         assert_eq!(inbox.recv_timeout(Duration::from_millis(150)).unwrap(), report);
         drop(silent);
@@ -422,7 +426,7 @@ mod tests {
         let mut noisy = connect(port).unwrap();
         let _ = noisy.write_all(&vec![b'x'; 100_000]);
         drop(noisy);
-        let report = Report { session: "s".into(), signal: Signal::Done, folder: None };
+        let report = Report { session: "s".into(), signal: Signal::Done, folder: None, pane: None };
         roster.broadcast(&report);
         assert_eq!(inbox.recv_timeout(Duration::from_secs(3)).unwrap(), report);
         drop(silent);

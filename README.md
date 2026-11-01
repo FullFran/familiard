@@ -54,6 +54,7 @@ familiard summon moc             # part of a name is enough: the one you use mos
 familiard -si                    # choose from a list, like zi (fzf if you have it; or: pick)
 familiard alias mochi gata       # another name for it
 familiard summon mochi --here    # follows only the next session in this folder, then leaves
+familiard summon mochi --pane    # the same for this tmux, Zellij, WezTerm or kitty pane
 familiard summon mochi --name "Bug del login"   # with a caption over its head
 familiard summon mochi --still   # never walks around on its own
 familiard default mochi          # choose the default

@@ -20,7 +20,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     CreateWindowExW, DefWindowProcW, DispatchMessageW, GetMessageW, GetWindowRect, LoadCursorW, PostQuitMessage,
     RegisterClassW, SetTimer, SetWindowPos, ShowWindow, TranslateMessage, UpdateLayeredWindow, HTCAPTION, IDC_ARROW,
     MSG, SWP_NOACTIVATE, SWP_NOSIZE, SWP_NOZORDER, SW_SHOWNOACTIVATE, ULW_ALPHA, WM_DESTROY, WM_NCHITTEST,
-    WM_NCLBUTTONDOWN, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_TIMER, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
+    WM_NCLBUTTONDOWN, WM_NCMOUSELEAVE, WM_NCMOUSEMOVE, WM_NCRBUTTONDOWN, WM_NCRBUTTONUP, WM_TIMER, WNDCLASSW, WS_EX_LAYERED, WS_EX_NOACTIVATE,
     WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
 };
 
@@ -197,6 +197,22 @@ unsafe extern "system" fn window_procedure(window: HWND, message: u32, wparam: W
         // while timers keep arriving here. So nothing may stay borrowed across it.
         WM_NCLBUTTONDOWN => {
             let from = window_corner(window);
+            // In this message the pointer comes in screen coordinates, as two 16-bit signed values.
+            let screen = (lparam as u32 as i16 as i32, (lparam as u32 >> 16) as i16 as i32);
+            let mut chosen = false;
+            with_theatre(|theatre| {
+                if let Some(corner) = from {
+                    let (x, y) = (screen.0 - corner.0, screen.1 - corner.1);
+                    chosen = x >= 0 && y >= 0 && theatre.player.choose_at(x as u32, y as u32);
+                }
+                if !chosen && theatre.player.close_menu() {
+                    theatre.present(window);
+                }
+            });
+            if chosen {
+                PostQuitMessage(0);
+                return 0;
+            }
             with_theatre(|theatre| {
                 theatre.held = true;
                 theatre.feel(window, Pointer::Pressed);
@@ -212,6 +228,16 @@ unsafe extern "system" fn window_procedure(window: HWND, message: u32, wparam: W
                 theatre.feel(window, Pointer::Released);
             });
             result
+        }
+        // Left to the default handling, a right click on a title bar opens the system menu.
+        WM_NCRBUTTONDOWN => 0,
+        WM_NCRBUTTONUP => {
+            with_theatre(|theatre| {
+                theatre.player.open_menu();
+                theatre.present(window);
+                theatre.schedule(window);
+            });
+            0
         }
         // Everywhere the pet is solid counts as a title bar, so Windows does the dragging.
         // Transparent pixels never get here.

@@ -19,8 +19,9 @@ use std::time::{Duration, Instant};
 
 const USAGE: &str = "usage:
   familiard                        summon the default pet
-  familiard summon, -s [id] [--here | --session ID] [--still] [--name TEXT] [--at X,Y] [--stage desktop|terminal]
+  familiard summon, -s [id] [--here | --pane | --session ID] [--still] [--name TEXT] [--at X,Y] [--stage desktop|terminal]
                                    --here: follow the next session in this folder, leave when it ends
+                                   --pane: follow the next session in this terminal pane, leave when it ends
                                    --session: follow this exact session, leave when it ends
                                    --still: never walk around on its own
                                    a name can be part of an id, an alias or a pet's name; the one used most wins
@@ -35,7 +36,7 @@ const USAGE: &str = "usage:
                                    give a pet another name, or list them
   familiard remove <id>            remove a pet from the gallery (needs the whole id)
   familiard default <id|alias>     choose the default pet
-  familiard run --pet <dir> [--follow DIR | --session ID] [--still] [--name TEXT] [--stage desktop|terminal] [--rows N] [--frames N] [--at X,Y]
+  familiard run --pet <dir> [--follow DIR | --follow-pane PANE | --session ID] [--still] [--name TEXT] [--stage desktop|terminal] [--rows N] [--frames N] [--at X,Y]
                                    run a pet in the foreground, without the gallery
   familiard frames <id|alias> --rows N [--octants]
                                    a pet's animations as text, as JSON, for other programs to embed
@@ -62,6 +63,7 @@ struct Options {
     frames: Option<u32>,
     at: (i32, i32),
     follow: Option<String>,
+    follow_pane: Option<String>,
     session: Option<String>,
     name: Option<String>,
     still: bool,
@@ -71,7 +73,24 @@ struct Options {
 enum Binding {
     Everything,
     Here,
+    Pane(String),
     Session(String),
+}
+
+/// The terminal pane this process runs in, as its multiplexer names it. A hook inherits it from
+/// its agent, which inherits it from the pane, so both ends of `--pane` read the same value.
+fn current_pane() -> Option<String> {
+    let var = |name: &str| std::env::var(name).ok().filter(|value| !value.is_empty());
+    if let Some(pane) = var("TMUX_PANE") {
+        return Some(format!("tmux:{pane}"));
+    }
+    if let Some(pane) = var("ZELLIJ_PANE_ID") {
+        return Some(format!("zellij:{}:{pane}", var("ZELLIJ_SESSION_NAME").unwrap_or_default()));
+    }
+    if let Some(pane) = var("WEZTERM_PANE") {
+        return Some(format!("wezterm:{pane}"));
+    }
+    var("KITTY_WINDOW_ID").map(|window| format!("kitty:{window}"))
 }
 
 fn checked_session(session: String) -> Result<String, Failure> {
@@ -98,6 +117,7 @@ fn parse_run(args: Vec<String>) -> Result<Options, Failure> {
             frames: None,
             at: (80, 80),
             follow: None,
+            follow_pane: None,
             session: None,
             name: None,
             still: false,
@@ -113,6 +133,7 @@ fn parse_run(args: Vec<String>) -> Result<Options, Failure> {
             "--frames" => options.frames = Some(value()?.parse()?),
             "--at" => options.at = parse_at(&value()?)?,
             "--follow" => options.follow = Some(canonical(&value()?)),
+            "--follow-pane" => options.follow_pane = Some(checked_session(value()?)?),
             "--session" => options.session = Some(checked_session(value()?)?),
             "--name" => options.name = Some(value()?),
             "--still" => options.still = true,
@@ -124,6 +145,9 @@ fn parse_run(args: Vec<String>) -> Result<Options, Failure> {
     }
     if options.follow.is_some() && options.session.is_some() {
         return Err(format!("--follow and --session cannot be used together\n{USAGE}").into());
+    }
+    if options.follow_pane.is_some() && (options.follow.is_some() || options.session.is_some()) {
+        return Err(format!("--follow-pane cannot be used with --follow or --session\n{USAGE}").into());
     }
     Ok(options)
 }
@@ -145,6 +169,18 @@ fn label(options: &Options) -> Option<String> {
         Some(Path::new(folder).file_name().map_or(folder.to_string(), |name| name.to_string_lossy().into_owned()))
     };
     named.map(String::from).or_else(folder_name)
+}
+
+/// The menu's choice, in Spanish for a Spanish desktop and otherwise in English.
+fn menu_label() -> &'static str {
+    let language = ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .find_map(|name| std::env::var(name).ok().filter(|value| !value.is_empty()));
+    if language.is_some_and(|language| language.starts_with("es")) {
+        "Despedir"
+    } else {
+        "Dismiss"
+    }
 }
 
 fn stage(options: &Options) -> Result<Box<dyn Stage>, Failure> {
@@ -183,18 +219,31 @@ fn run(args: Vec<String>) -> Result<(), Failure> {
         if let Some(folder) = &options.follow {
             player = player.following(folder.as_str());
         }
+        if let Some(pane) = &options.follow_pane {
+            player = player.following_pane(pane.as_str());
+        }
         if options.still {
             player = player.still();
         }
         if let Some(session) = &options.session {
             player = player.following_session(session.as_str());
         }
-        // The font is only read for a pet with something to say, and gone once it has been
-        // used. A pet that cannot write its caption is still a pet.
-        let Some(label) = label(&options) else { return player };
+        // A stage with no pointer has no menu, and without a label it has no caption either, so
+        // the font is only read when it is needed, and gone once it has been used. A pet that
+        // cannot write is still a pet, with a plain menu.
+        let label = label(&options);
+        let has_pointer = options.stage != "terminal";
+        if label.is_none() && !has_pointer {
+            return player;
+        }
         match FontCaptioner::new() {
             Ok(captioner) => {
-                let player = player.captioned(&label, &captioner);
+                if let Some(label) = &label {
+                    player = player.captioned(label, &captioner);
+                }
+                if has_pointer {
+                    player = player.with_menu_label(menu_label(), &captioner);
+                }
                 drop(captioner);
                 give_back_freed_memory();
                 player
@@ -231,6 +280,7 @@ fn summon_pet(args: Vec<String>) -> Result<(), Failure> {
     let mut at = None;
     let mut stage = "desktop".to_string();
     let mut here = false;
+    let mut pane = false;
     let mut still = false;
     let mut session = None;
     let mut name = None;
@@ -241,6 +291,7 @@ fn summon_pet(args: Vec<String>) -> Result<(), Failure> {
             "--at" => at = Some(parse_at(&value()?)?),
             "--stage" => stage = value()?,
             "--here" => here = true,
+            "--pane" => pane = true,
             "--still" => still = true,
             "--session" => session = Some(checked_session(value()?)?),
             "--name" => name = Some(value()?),
@@ -248,11 +299,16 @@ fn summon_pet(args: Vec<String>) -> Result<(), Failure> {
             other => return Err(format!("unknown option {other}\n{USAGE}").into()),
         }
     }
-    let binding = match (here, session) {
-        (true, Some(_)) => return Err(format!("--here and --session cannot be used together\n{USAGE}").into()),
-        (true, None) => Binding::Here,
-        (false, Some(session)) => Binding::Session(session),
-        (false, None) => Binding::Everything,
+    let binding = match (here, pane, session) {
+        (true, true, _) => return Err(format!("--here and --pane cannot be used together\n{USAGE}").into()),
+        (true, _, Some(_)) => return Err(format!("--here and --session cannot be used together\n{USAGE}").into()),
+        (_, true, Some(_)) => return Err(format!("--pane and --session cannot be used together\n{USAGE}").into()),
+        (true, false, None) => Binding::Here,
+        (false, true, None) => Binding::Pane(current_pane().ok_or(
+            "--pane needs tmux, Zellij, WezTerm or kitty to tell panes apart; without one, use --here",
+        )?),
+        (false, false, Some(session)) => Binding::Session(session),
+        (false, false, None) => Binding::Everything,
     };
     let gallery = Gallery::new(&home());
     let id = match id {
@@ -305,6 +361,9 @@ fn bring_out(
         Binding::Everything => {}
         Binding::Here => {
             command.arg("--follow").arg(fs::canonicalize(std::env::current_dir()?)?);
+        }
+        Binding::Pane(pane) => {
+            command.args(["--follow-pane", pane]);
         }
         Binding::Session(session) => {
             command.args(["--session", session]);
@@ -661,6 +720,7 @@ fn hook(args: Vec<String>) {
     let session = flag("--session").map(String::as_str);
     if let Some(mut report) = interpret(agent, event, session, guess.as_deref(), &payload) {
         report.folder = report.folder.as_deref().map(canonical);
+        report.pane = current_pane();
         roster().broadcast(&report);
     }
 }

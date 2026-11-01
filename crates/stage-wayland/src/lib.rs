@@ -17,7 +17,7 @@ use smithay_client_toolkit::{
     registry::{ProvidesRegistryState, RegistryState},
     registry_handlers,
     seat::{
-        pointer::{PointerEvent, PointerEventKind, PointerHandler, BTN_LEFT},
+        pointer::{PointerEvent, PointerEventKind, PointerHandler, BTN_LEFT, BTN_RIGHT},
         Capability, SeatHandler, SeatState,
     },
     shell::{
@@ -162,6 +162,10 @@ impl Theatre {
                     );
                 }
             }
+        }
+        // The menu takes clicks only while it is there to see.
+        if let (Some(region), Some((left, top, width, height))) = (&region, self.player.menu_area()) {
+            region.add(left as i32, top as i32, width as i32, height as i32);
         }
         let surface = self.layer.wl_surface();
         surface.set_input_region(region.as_ref().map(|r| r.wl_region()));
@@ -356,6 +360,10 @@ impl PointerHandler for Theatre {
             match event.kind {
                 PointerEventKind::Enter { .. } => changed |= self.player.pointer(Pointer::Entered),
                 PointerEventKind::Press { button: BTN_LEFT, .. } => {
+                    if self.player.choose_at(event.position.0 as u32, event.position.1 as u32) {
+                        continue; // it is leaving, so there is nothing to grab
+                    }
+                    changed |= self.player.close_menu();
                     self.grabbed_at = Some(event.position);
                     changed |= self.player.pointer(Pointer::Pressed);
                 }
@@ -363,6 +371,7 @@ impl PointerHandler for Theatre {
                     self.grabbed_at = None;
                     changed |= self.player.pointer(Pointer::Released);
                 }
+                PointerEventKind::Release { button: BTN_RIGHT, .. } => changed |= self.player.open_menu(),
                 // While a button is held the compositor keeps sending motion here, so
                 // leaving means the grab was lost. Dropping it keeps the pet from
                 // following a pointer with no button pressed.

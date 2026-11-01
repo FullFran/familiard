@@ -322,7 +322,7 @@ fn a_signal_reaches_every_pet_as_a_chatgpt_session_with_no_folder() {
     // could still reach it, cleaning up would end the whole test run with a success status.
     std::fs::remove_file(home.0.join("running/listener")).unwrap();
     assert_eq!(reply, json!({"ok": true}));
-    let expected = Report { session: format!("chatgpt:{CONVERSATION}"), signal: Signal::Working, folder: None };
+    let expected = Report { session: format!("chatgpt:{CONVERSATION}"), signal: Signal::Working, folder: None, pane: None };
     assert_eq!(report.unwrap(), expected, "no folder, so --here never claims it");
     drop(host.finish());
 }
@@ -525,4 +525,30 @@ fn plain_summon_and_here_still_behave_as_before() {
     let report = home.command().args(["hook", "--agent", "x", "--session", "s", "--event", "ended"]).current_dir(&work).output().unwrap();
     assert!(report.status.success() && report.stdout.is_empty() && report.stderr.is_empty());
     assert!(home.is_open("demo"), "an end nobody claimed is not a claim");
+}
+
+#[test]
+fn a_pet_out_of_the_gallery_is_listed_and_can_be_dismissed() {
+    let home = Home::new();
+    home.add_demo();
+    let mut stray = home
+        .command()
+        .args(["run", "--id", "stray", "--stage", "terminal", "--pet", &demo()])
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .spawn()
+        .unwrap();
+    let started = Instant::now();
+    while !home.0.join("running/stray").exists() {
+        assert!(started.elapsed() < Duration::from_secs(5), "the pet never appeared");
+    }
+    let mut host = home.host();
+    let list = host.ask(json!({"type": "list"}));
+    assert_eq!(list["strays"], json!(["stray"]));
+    assert_eq!(list["pets"].as_array().unwrap().len(), 1, "the gallery is still only the gallery");
+    assert_eq!(host.ask(json!({"type": "dismiss", "pet": "stray"})), json!({"ok": true, "was_there": true}));
+    stray.wait().unwrap();
+    assert_eq!(host.ask(json!({"type": "list"}))["strays"], json!([]));
+    assert_refused(&host.ask(json!({"type": "dismiss", "pet": "stray"})), "gone, and never in the gallery");
 }

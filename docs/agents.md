@@ -18,6 +18,11 @@ from that folder or below it. See [docs/pets.md](pets.md#a-pet-for-one-session).
 that session reports `ended`, so it needs an agent that reports it: Claude Code, Gemini CLI, Pi
 and OpenCode do. With Codex and Antigravity, send it away with `familiard dismiss`.
 
+A pet summoned with `--pane` works the same way, with the next session to report from that terminal
+pane. The hook reads the pane from `TMUX_PANE`, `ZELLIJ_PANE_ID` (with `ZELLIJ_SESSION_NAME`),
+`WEZTERM_PANE` or `KITTY_WINDOW_ID`, so it needs an agent that passes its environment to its hooks.
+Only Claude Code has been checked; open pets hear the pane's name over loopback, like the folder.
+
 `familiard` must be on the `PATH` of the agent, or use its full path. Merge these entries
 into your config rather than replacing the file.
 

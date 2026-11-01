@@ -90,7 +90,7 @@ fn obey(message: &Value) -> Result<Value, Failure> {
     match kind {
         "list" => {
             only(fields, &["type"])?;
-            Ok(json!({"ok": true, "pets": pet_rows()}))
+            Ok(json!({"ok": true, "pets": pet_rows(), "strays": strays()}))
         }
         "summon" => {
             only(fields, &["type", "pet", "conversation", "name"])?;
@@ -102,7 +102,7 @@ fn obey(message: &Value) -> Result<Value, Failure> {
         }
         "dismiss" => {
             only(fields, &["type", "pet"])?;
-            Ok(json!({"ok": true, "was_there": roster().dismiss(pet(fields)?)}))
+            Ok(json!({"ok": true, "was_there": roster().dismiss(leaving_pet(fields)?)}))
         }
         other => Err(format!("unknown message type {other}").into()),
     }
@@ -127,6 +127,22 @@ fn pet(fields: &Map<String, Value>) -> Result<&str, Failure> {
     let id = text(fields, "pet")?;
     Gallery::new(&home()).folder(id)?;
     Ok(id)
+}
+
+/// Pets that are out without being in the gallery, as `familiard run` leaves them.
+fn strays() -> Vec<String> {
+    let gallery = Gallery::new(&home());
+    roster().open().into_iter().filter(|id| gallery.folder(id).is_err()).collect()
+}
+
+/// A pet that is out can leave wherever it came from. Anything else must be in the gallery, so an
+/// id that is neither never gets as far as the roster's files.
+fn leaving_pet(fields: &Map<String, Value>) -> Result<&str, Failure> {
+    let id = text(fields, "pet")?;
+    if roster().open().iter().any(|open| open == id) {
+        return Ok(id);
+    }
+    pet(fields)
 }
 
 fn conversation(fields: &Map<String, Value>) -> Result<&str, Failure> {

@@ -64,6 +64,7 @@ Keep them on your machine: do not put them in a shared repository.
 | --- | --- |
 | `familiard summon mochi` | Follows every session, never leaves by itself, and has no caption |
 | `familiard summon mochi --here` | Follows only the next session in this folder, and leaves when it ends |
+| `familiard summon mochi --pane` | Follows only the next session in this terminal pane, and leaves when it ends |
 | `familiard summon mochi --name "Bug del login"` | Follows every session, with that caption |
 | `familiard summon mochi --here --name "Bug del login"` | Both |
 | `familiard summon mochi --session claude:abc` | Follows only that exact session, and leaves when it ends |
@@ -72,11 +73,17 @@ With `--here`, the pet stays idle until a session reports from this folder or on
 session claims the pet, and from then on no other session counts. A session that goes quiet keeps
 its pet; only its end sends the pet away, and `familiard dismiss` always works.
 
+`--pane` is the same idea for two agents in one folder, as each pane gets its own pet. It works
+inside tmux, Zellij, WezTerm and kitty, because those tell a program which pane it runs in, and the
+agent's hook inherits that. Anywhere else it fails and suggests `--here`. To bind a pet to an agent
+already running, run the command from inside it: `!familiard summon mochi --pane` in Claude Code.
+The pet only has a caption if you give it `--name`.
+
 `--session` is for a session with no folder to match, such as [a ChatGPT conversation](browser.md).
 It is the agent and the session's id as a hook reports them, `<agent>:<session>`, and it cannot be
 combined with `--here`.
 
-A pet can only be out once. `summon` on a pet that is already out changes nothing about it, and with `--here`, `--session`, `--name` or `--still` it fails instead, because those could not apply: dismiss it first. `--at` and `--stage` only matter when it appears, so they are ignored on a pet already out.
+A pet can only be out once. `summon` on a pet that is already out changes nothing about it, and with `--here`, `--pane`, `--session`, `--name` or `--still` it fails instead, because those could not apply: dismiss it first. `--at` and `--stage` only matter when it appears, so they are ignored on a pet already out.
 
 The caption sits above the pet's head and says what the session is doing. Its text is the name
 you gave, or else the last part of the folder:
@@ -106,6 +113,7 @@ first and interrupts all of this at once.
 | Looks at the pointer | When the pointer comes over it | Rows 9 and 10 |
 | Waves | When you click it without dragging | Row 3 |
 | Kicks its legs | While you drag it, towards where it is going | Rows 1 and 2 |
+| Offers to leave | When you right-click it, on a desktop stage: press **Dismiss** (**Despedir** on a Spanish desktop) to send it away. The menu closes by itself after 4 seconds, or with another click on the pet | Nothing: the menu is drawn over it |
 
 To keep a pet where you put it, add `--still` to `summon` or `run`: it stops strolling and keeps
 everything else. A pet bound with `--here` wakes only for its own session.
