@@ -34,3 +34,31 @@ button {
 button {
   cursor: pointer;
 }
+
+#others {
+  margin-top: 12px;
+}
+
+#others-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+#others-list li {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+#others-list span {
+  flex: 1;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+#others-list button {
+  width: auto;
+  flex: none;
+}

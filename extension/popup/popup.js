@@ -53,20 +53,46 @@
   let conversation = null;
   let tab;
 
+  async function dismiss(which) {
+    const reply = await api.runtime.sendMessage({ type: "dismiss", conversation: which });
+    await refresh(false);
+    if (!reply.ok) say(explain(reply));
+  }
+
+  /** The pets out on other conversations, so that saying goodbye does not mean going there. */
+  function fillOthers(others) {
+    const list = element("others-list");
+    list.replaceChildren();
+    for (const other of others) {
+      const item = document.createElement("li");
+      const label = document.createElement("span");
+      label.textContent = other.name ? text("otherNamed", other.pet, other.name) : other.pet;
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = text("dismissButton");
+      button.addEventListener("click", () => dismiss(other.conversation));
+      item.append(label, button);
+      list.append(item);
+    }
+    show("others", others.length > 0);
+  }
+
   async function refresh(keepName) {
     show("bring", false);
     show("bound", false);
+    show("others", false);
     say("");
     tab = await activeTab();
     const described = await describe(tab);
-    if (!described) {
-      say(text("notAConversation"));
-      return;
-    }
-    conversation = described.conversation;
+    conversation = described?.conversation ?? null;
     const status = await api.runtime.sendMessage({ type: "status", conversation });
     if (!status.ok) {
       say(explain(status));
+      return;
+    }
+    fillOthers(status.others);
+    if (!described) {
+      say(text("notAConversation"));
       return;
     }
     if (status.bound) {
@@ -101,11 +127,7 @@
     if (!reply.ok) say(explain(reply));
   });
 
-  element("dismiss-button").addEventListener("click", async () => {
-    const reply = await api.runtime.sendMessage({ type: "dismiss", conversation });
-    await refresh(false);
-    if (!reply.ok) say(explain(reply));
-  });
+  element("dismiss-button").addEventListener("click", () => dismiss(conversation));
 
   for (const node of document.querySelectorAll("[data-i18n]")) {
     node.textContent = text(node.dataset.i18n);

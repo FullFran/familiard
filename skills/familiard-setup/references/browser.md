@@ -52,7 +52,7 @@ nothing by itself.
 | --- | --- |
 | It starts answering | Works: `Bug del login · working` |
 | It finishes, even if you moved to another conversation | Celebrates: `Bug del login · done` |
-| You press **Dismiss** (**despedir**), or `familiard dismiss` | Leaves |
+| You press **Dismiss** (**despedir**) in the popup, from any tab, or `familiard dismiss` | Leaves |
 | You close the last tab showing it | Leaves |
 | You restart the browser | Leaves when the browser opens again |
 
@@ -62,6 +62,7 @@ Things to know:
   conversation. For one pet per conversation, keep several in your gallery. `familiard add <folder>
   --as other-name` adds the same pack twice.
 - A conversation has one pet at a time.
+- The popup lists the pets out on other conversations, so you can dismiss one without going there.
 - **Keep the sidebar open to follow several conversations.** A closed sidebar stops updating its
   rows. The conversation on screen then goes by its stop button. A conversation out of sight that
   was already being followed keeps working until you reopen the sidebar, which is when it

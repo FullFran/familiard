@@ -26,7 +26,8 @@
     }
 
     return {
-      /** The gallery, what this conversation has, and which pets went away by other means. */
+      /** The gallery, what this conversation and the others have, and which pets went away by other
+       *  means. */
       status(conversation) {
         return serial(async () => {
           const reply = await native(session.listMessage());
@@ -42,7 +43,10 @@
           }
           if (changed) await storage.save(bound);
           const mine = conversation && Object.hasOwn(bound, conversation) ? bound[conversation] : null;
-          return { ok: true, pets: reply.pets, bound: mine && { pet: mine.pet, name: mine.name } };
+          const others = Object.entries(bound)
+            .filter(([key]) => key !== conversation)
+            .map(([key, binding]) => ({ conversation: key, pet: binding.pet, name: binding.name }));
+          return { ok: true, pets: reply.pets, bound: mine && { pet: mine.pet, name: mine.name }, others };
         });
       },
 

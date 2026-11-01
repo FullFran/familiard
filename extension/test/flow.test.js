@@ -189,6 +189,34 @@ test("dismissing ends the session, sends the pet away and forgets the binding", 
   assert.equal(w.sent.length, before, "nothing left to dismiss");
 });
 
+test("the status lists the pets on other conversations, to dismiss them from anywhere", async () => {
+  const pets = ["mochi", "kuro"].map((id) => ({ id, name: id, default: false, open: false }));
+  const w = world({ pets });
+  await w.hub.bring({ pet: "mochi", conversation: MINE, name: "Bug", tab: 1 });
+  await w.hub.bring({ pet: "kuro", conversation: "other", name: "", tab: 2 });
+
+  const here = await w.hub.status(MINE);
+  assert.deepEqual(here.bound, { pet: "mochi", name: "Bug" });
+  assert.deepEqual(here.others, [{ conversation: "other", pet: "kuro", name: "" }]);
+
+  const elsewhere = await w.hub.status(undefined);
+  assert.equal(elsewhere.bound, null);
+  assert.deepEqual(elsewhere.others.map((other) => other.pet), ["mochi", "kuro"]);
+
+  await w.hub.dismiss("other");
+  assert.deepEqual((await w.hub.status(MINE)).others, []);
+  assert.equal(w.open.has("kuro"), false);
+  assert.equal(w.open.has("mochi"), true, "the pet of this conversation stays");
+});
+
+test("a pet that left by other means is not listed", async () => {
+  const pets = ["mochi", "kuro"].map((id) => ({ id, name: id, default: false, open: false }));
+  const w = world({ pets });
+  await w.hub.bring({ pet: "kuro", conversation: "other", name: "", tab: 2 });
+  w.open.delete("kuro");
+  assert.deepEqual((await w.hub.status(MINE)).others, []);
+});
+
 test("a pet the host refuses is not bound", async () => {
   const w = world();
   await w.hub.bring({ pet: "mochi", conversation: MINE, name: "One", tab: 1 });
